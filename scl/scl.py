@@ -1,64 +1,25 @@
-from torch import nn
 import torch
-from ConvLayers import ResBlock
 import lightning as L
-import torchvision
-from torch.utils.data import DataLoader, RandomSampler
+from Datasets import SCLDataset
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
-from Augmentations import SwavTrainTransform, SwavEvalTransform
-
-
-class ResNet(nn.Module):
-    def __init__(self, in_channels, num_classes):
-        super().__init__()
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), #nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=7, stride=2, padding=3),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        )
-        self.res1 = self.make_resblock(in_channels=64, out_channels=64, stride=1, padding=1, kernel_size=3)
-        self.res2 = self.make_resblock(in_channels=64, out_channels=128, stride=2, padding=1, kernel_size=3)
-        self.res3 = self.make_resblock(in_channels=128, out_channels=256, stride=2, padding=1, kernel_size=3)
-        self.res4 = self.make_resblock(in_channels=256, out_channels=512, stride=2, padding=1, kernel_size=3)
-        self.pool = nn.AdaptiveAvgPool2d((1,1))
-        self.fc = nn.Sequential(
-            nn.Linear(2048, 512, bias=False),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-            nn.Linear(512, num_classes, bias=True)
-        )
-
-    def make_resblock(self, in_channels, out_channels, kernel_size, padding, stride):
-        downsample = None
-        if stride > 1:
-            downsample = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding),
-                nn.BatchNorm2d(out_channels)
-            )
-        return ResBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, stride=stride, downsample=downsample)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.res1(x)
-        x = self.res2(x)
-        x = self.res3(x)
-        x = self.res4(x)
-        #print(x.shape)
-        #x = self.pool(x)
-        x = torch.flatten(x, start_dim=1)
-        x = self.fc(x)
-        return x
+from Augmentations import SwavTrainTransform
+from utils import load_dataset, load_knndataset
+from torch.utils.data import DataLoader, RandomSampler
+from FeedForward import FeedForward
+from ResNet import ResNet
 
 
 class SCL(L.LightningModule):
-    def __init__(self, imgsize, N_samples, T_iterations, max_epochs, alpha, output_dim=128, lr=3e-4):
+    def __init__(self, imgsize, N_samples, T_iterations, max_epochs, alpha, output_dim=128, lr=3e-4, datasetname="cifar10", modelname="resnet",simmetric="stud-tkernel"):
         super().__init__()
         self.save_hyperparameters()
-        self.model = ResNet(in_channels=3, num_classes=output_dim)
+        if modelname == "resnet":
+            self.model = ResNet(in_channels=3, num_classes=output_dim)
+        else:
+            self.model = FeedForward(in_channels=3, imgsize=imgsize, out_features=output_dim)
         # buffer's current values can be loaded using the state_dict of the module which might be useful to know
         self.register_buffer("xi", torch.zeros(1,))  # weighted sum qij
         self.register_buffer("omega", torch.zeros(1,))  # count qij
@@ -69,8 +30,7 @@ class SCL(L.LightningModule):
         self.max_epochs = max_epochs
         self.T = T_iterations
         # KNN validation
-        plaintraindataset = torchvision.datasets.CIFAR10(root="./data", train=True, download=True, transform=SwavEvalTransform(imgsize, num_views=1))
-        plainvaldataset = torchvision.datasets.CIFAR10(root="./data", train=False, download=True, transform=SwavEvalTransform(imgsize, num_views=1))
+        plaintraindataset, plainvaldataset = load_knndataset(name=datasetname, imgsize=imgsize)
         self.plain_trainloader = DataLoader(dataset=plaintraindataset, batch_size=512, shuffle=True, num_workers=20)
         self.plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=20)
 
@@ -78,34 +38,33 @@ class SCL(L.LightningModule):
         return self.model(x)
 
     def on_train_epoch_start(self) -> None:
-        # lr restarted by scheduler on epoch start
         self.xi = torch.zeros(1,).to(self.device)
         self.omega = torch.zeros(1,).to(self.device)
-        self.eta = 1 - self.current_epoch / self.max_epochs
 
-    def negative_forces(self):
-        pass
-
-    def positive_forces(self):
-        pass
+    def _sim_metric(self, z1, z2):
+        if self.hparams.simmetric == "stud-tkernel":
+            return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
+        elif self.hparams.simmetric == "l2":
+            return 1 / (torch.sum((z1 - z2)**2, dim=1))
+        else:  # "cossim"
+            z1 = z1.norm(p=2, dim=1, keepdim=True)
+            z2 = z2.norm(p=2, dim=1, keepdim=True)
+            return torch.sum(z1 * z2, dim=1) * 0.5 + 0.5  # cosine similarity [-1,1] -> [0,1]
 
     def _shared_step(self, batch, batch_idx, mode="train"):
-        # TODO how handle different batchsize? average, iterative compute?
         x_i, xhat_i, x_j = batch
-        #import pdb
-        #pdb.set_trace()
         B = x_i.shape[0]  # batchsize
         z = self.forward(torch.cat([x_i, xhat_i, x_j], dim=0))
-        # TODO parametric or non-parametric similarity?
-        z = z.norm(p=2, dim=1, keepdim=True)  # if cosine similarity
         z_i, zhat_i, z_j = z[0:B], z[B:2*B], z[2*B:3*B]
         # positive forces
-        qii = torch.sum(z_i * zhat_i, dim=1) * 0.5 + 0.5  # cosine similarity [-1,1] -> [0,1]
+        qii = self._sim_metric(z_i, zhat_i)
+        qii = torch.mean(qii)
         positive_forces = - torch.log(qii)
         self.xi = self.xi + self.alpha * qii.detach()
         self.omega = self.omega + self.alpha
         # negative forces
-        qij = torch.sum(z_i * z_j, dim=1) * 0.5 + 0.5  # cosine similarity [-1,1] -> [0,1]
+        qij = self._sim_metric(z_i, z_j)
+        qij = torch.mean(qij)
         negative_forces = qij / self.s_inv
         self.xi = self.xi + (1 - self.alpha) * qij.detach()
         self.omega = self.omega + (1 - self.alpha)
@@ -118,6 +77,8 @@ class SCL(L.LightningModule):
 
         self.log_dict({
             mode + "_loss": loss,
+            mode + "_posforces": positive_forces,
+            mode + "_negforces": negative_forces,
         },
             on_step=True,
             on_epoch=True,
@@ -126,6 +87,17 @@ class SCL(L.LightningModule):
         return {"loss": loss}
 
     def training_step(self, train_batch, batch_idx):
+        self.log_dict({
+            "xi": self.xi.item(),
+            "omega": self.omega.item(),
+            "alpha": self.alpha.item(),
+            "ro": self.ro.item(),
+            "sinv": self.s_inv.item(),
+        },
+            on_step=True,
+            on_epoch=False,
+            prog_bar=False
+        )
         return self._shared_step(train_batch, batch_idx, mode="train")
 
     def validation_step(self, val_batch, batch_idx):
@@ -142,7 +114,11 @@ class SCL(L.LightningModule):
             optimizer,
             T_0 = self.T,  # number of iterations for the first restart
         )
-
+        scheduler = {
+            "scheduler": scheduler,
+            "interval": "step",
+            "frequency": 1
+        }
         return [optimizer], [scheduler]
 
     def on_validation_epoch_end(self):
@@ -163,30 +139,12 @@ class SCL(L.LightningModule):
             self.log("knn_acc", acc)
 
 
-class SCLDataset(torch.utils.data.Dataset):
-    def __init__(self, basedataset, transform):
-        self.basedataset = basedataset
-        self.transform = transform
-
-    def __getitem__(self, item):
-        # TODO improve sampling and clean code sample [1,N]^2
-        x, _ = self.basedataset[item]
-        x_i = self.transform(x)
-        xhat_i = self.transform(x)
-        j = torch.randint(low=0, high=len(self.basedataset), size=(1,))
-        x_j, _ = self.basedataset[j]
-        x_j = self.transform(x_j)
-        return x_i, xhat_i, x_j
-
-    def __len__(self):
-        return len(self.basedataset)
-
-
 if __name__ == "__main__":
-    x = torch.rand(64, 3, 32, 32)
-    model = ResNet(in_channels=3, num_classes=10)
-    out = model(x)
-    print(out.shape)
+    # DATASET
+    DATASET = "mnist"
+
+    # MODEL
+    MODELNAME = "feedforward"
 
     # DATA AUGMENTATION
     COLOR_JITTER_STRENGTH = 0.5
@@ -195,30 +153,22 @@ if __name__ == "__main__":
 
     # PARAMS
     ALPHA = 0.5
-    T_iterations = 1000
+    T_ITER = 100_000
 
     # HYPERPARAMS
-    BATCH_SIZE = 1 # currently only support batchsize 1
+    BATCH_SIZE = 4
     NUM_WORKERS = 20
-    MAX_EPOCHS = 100
-    OPTIMIZER_NAME = "sgd"  #
-    LR = 3e-4  # lr?
+    OPTIMIZER_NAME = "sgd"
+    LR = 1.0  # lr?
 
-    traindataset = torchvision.datasets.CIFAR10(
-        root="./data",
-        train=True,
-        #transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR),
-        download=True
-    )
-    traindataset = SCLDataset(traindataset, transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR, num_views=1))
+    traindataset, valdataset = load_dataset(DATASET)
 
-    valdataset = torchvision.datasets.CIFAR10(
-        root="./data",
-        train=False,
-        #transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR),
-        download=True
-    )
-    valdataset = SCLDataset(valdataset, transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR, num_views=1))
+    traindataset = SCLDataset(traindataset,
+                              transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR, num_views=1, dataset=DATASET),
+                              )
+    valdataset = SCLDataset(valdataset,
+                            transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR, num_views=1, dataset=DATASET),
+                            )
 
     # NOTE: sampling with replacement
     trainloader = DataLoader(traindataset,
@@ -232,11 +182,9 @@ if __name__ == "__main__":
                            sampler=RandomSampler(valdataset, replacement=True)
                            )
 
-    torch.set_float32_matmul_precision('medium')
-
-    out = next(iter(trainloader))
-    #import pdb
-    #pdb.set_trace()
+    # Training runtime
+    MAX_EPOCHS = -1  # T_ITER // len(traindataset)
+    # MAX_STEPS = T_ITER % len(traindataset)
 
     model = SCL(
         max_epochs=MAX_EPOCHS,
@@ -244,13 +192,19 @@ if __name__ == "__main__":
         lr=LR,
         alpha=ALPHA,
         N_samples=len(traindataset),
-        T_iterations=T_iterations
+        T_iterations=T_ITER,
+        datasetname=DATASET,
+        modelname=MODELNAME
     )
 
-    logger = TensorBoardLogger("tb_logs", name="scl-cifar10")
+    # Lightning
+    torch.set_float32_matmul_precision('medium')
+
+    logger = TensorBoardLogger("tb_logs", name="scl")
     trainer = L.Trainer(
         logger=logger,
         max_epochs=MAX_EPOCHS,
+        max_steps=T_ITER,
         precision=32,
         accelerator="gpu",
         callbacks=[
@@ -260,7 +214,7 @@ if __name__ == "__main__":
                 monitor="val_loss",
                 save_last=True
             ),
-            LearningRateMonitor("epoch")
+            LearningRateMonitor("step")
         ]
     )
 
