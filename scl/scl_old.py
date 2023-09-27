@@ -13,21 +13,34 @@ from ResNet import ResNet
 
 
 class SCL(L.LightningModule):
-    def __init__(self, imgsize, N_samples, T_iterations, max_epochs, alpha, output_dim=128, lr=3e-4, datasetname="cifar10", modelname="resnet",simmetric="stud-tkernel"):
+    def __init__(self,
+                 s_inv,
+                 xi,
+                 omega,
+                 ro,
+                 alpha,
+                 imgsize,
+                 N_samples,
+                 simmetric,
+                 T_iterations,
+                 embed_dim,
+                 lr_init,
+                 datasetname,
+                 modelname,
+                 ):
         super().__init__()
         self.save_hyperparameters()
         if modelname == "resnet":
-            self.model = ResNet(in_channels=3, num_classes=output_dim)
+            self.model = ResNet(in_channels=3, num_classes=embed_dim)
         else:
-            self.model = FeedForward(in_channels=3, imgsize=imgsize, out_features=output_dim)
+            self.model = FeedForward(in_channels=3, imgsize=imgsize, out_features=embed_dim)
         # buffer's current values can be loaded using the state_dict of the module which might be useful to know
-        self.register_buffer("xi", torch.zeros(1,))  # weighted sum qij
-        self.register_buffer("omega", torch.zeros(1,))  # count qij
-        self.register_buffer("s_inv", torch.zeros(1,) + N_samples**2)  # scale parameter measure discrepancy between p and q
+        self.register_buffer("xi", torch.zeros(1,) + xi)  # weighted sum q
+        self.register_buffer("omega", torch.zeros(1,) + omega)  # count q
+        self.register_buffer("s_inv", torch.zeros(1,) + s_inv)  # scale parameter measure discrepancy between p and q
         self.register_buffer("alpha", torch.zeros(1,) + alpha)  # [0,1] adaptively extra attraction to ease training
-        self.register_buffer("ro", torch.ones(1,))  # [0,1] forgetting rate s_inv
+        self.register_buffer("ro", torch.ones(1,) + ro)  # [0,1] forgetting rate s_inv
         self.register_buffer("N", torch.zeros(1,) + N_samples)  # N samples in dataset
-        self.max_epochs = max_epochs
         self.T = T_iterations
         # KNN validation
         plaintraindataset, plainvaldataset = load_knndataset(name=datasetname, imgsize=imgsize)
@@ -37,23 +50,23 @@ class SCL(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def on_train_epoch_start(self) -> None:
-        self.xi = torch.zeros(1,).to(self.device)
-        self.omega = torch.zeros(1,).to(self.device)
-
     def _sim_metric(self, z1, z2):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
         elif self.hparams.simmetric == "l2":
-            return 1 / (torch.sum((z1 - z2)**2, dim=1))
+            return 1 / (torch.sum((z1 - z2)**2, dim=1))  # fix div /0
         else:  # "cossim"
             z1 = z1.norm(p=2, dim=1, keepdim=True)
             z2 = z2.norm(p=2, dim=1, keepdim=True)
             return torch.sum(z1 * z2, dim=1) * 0.5 + 0.5  # cosine similarity [-1,1] -> [0,1]
 
     def _shared_step(self, batch, batch_idx, mode="train"):
+        # Reset
+        self.xi = torch.zeros(1,).to(self.device)
+        self.omega = torch.zeros(1,).to(self.device)
+        # Process batch
         x_i, xhat_i, x_j = batch
-        B = x_i.shape[0]  # batchsize
+        B = x_i.shape[0]
         z = self.forward(torch.cat([x_i, xhat_i, x_j], dim=0))
         z_i, zhat_i, z_j = z[0:B], z[B:2*B], z[2*B:3*B]
         # positive forces
@@ -70,8 +83,10 @@ class SCL(L.LightningModule):
         self.omega = self.omega + (1 - self.alpha)
 
         # Update
-        self.ro = self.N ** 2 / (self.N ** 2 + self.omega)
-        self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**2 * self.xi / self.omega
+        self.omega = self.omega * 128**2
+        self.xi = self.xi * 128**2
+        self.ro = self.N / (self.N + self.omega)
+        self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N * self.xi / self.omega
 
         loss = positive_forces + negative_forces
 
@@ -106,13 +121,13 @@ class SCL(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.SGD(
             self.model.parameters(),
-            lr=self.hparams.lr,
+            lr=self.hparams.lr_init,
         )
-        # https://pytorch.org/docs/stable/generated/torch.optim.lr_scheduler.CosineAnnealingWarmRestarts.html
         # start with initial lr, cosine anneal to 0 then restart.
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_0 = self.T,  # number of iterations for the first restart
+            T_max = self.T,  # max iterations
+            eta_min=0.0
         )
         scheduler = {
             "scheduler": scheduler,
@@ -143,23 +158,16 @@ if __name__ == "__main__":
     # DATASET
     DATASET = "mnist"
 
-    # MODEL
-    MODELNAME = "feedforward"
-
     # DATA AUGMENTATION
     COLOR_JITTER_STRENGTH = 0.5
     GAUSSIAN_BLUR = False
     IMG_SIZE = 32
 
-    # PARAMS
-    ALPHA = 0.5
-    T_ITER = 100_000
-
     # HYPERPARAMS
-    BATCH_SIZE = 4
+    BATCH_SIZE = 8
     NUM_WORKERS = 20
     OPTIMIZER_NAME = "sgd"
-    LR = 1.0  # lr?
+    LR_INIT = 1.0  # lr?
 
     traindataset, valdataset = load_dataset(DATASET)
 
@@ -182,19 +190,35 @@ if __name__ == "__main__":
                            sampler=RandomSampler(valdataset, replacement=True)
                            )
 
-    # Training runtime
-    MAX_EPOCHS = -1  # T_ITER // len(traindataset)
-    # MAX_STEPS = T_ITER % len(traindataset)
+    # PARAMS
+    MODELNAME = "feedforward"
+    N_SAMPLES = len(traindataset)
+    ALPHA = 0.5
+    T_ITER = 100_000
+    RO = 1.0
+    XI = 0.0
+    OMEGA = 0.0
+    S_INV = N_SAMPLES
+    EMBED_DIM = 128
+    SIMMETRIC = "stud-tkernel"  # "cossim", "l2", "stud-tkernel"
+
+    MAX_EPOCHS = -1
+    # MAX_STEPS = T_ITER
 
     model = SCL(
-        max_epochs=MAX_EPOCHS,
         imgsize=IMG_SIZE,
-        lr=LR,
-        alpha=ALPHA,
+        lr_init=LR_INIT,
         N_samples=len(traindataset),
         T_iterations=T_ITER,
         datasetname=DATASET,
-        modelname=MODELNAME
+        modelname=MODELNAME,
+        alpha=ALPHA,
+        ro=RO,
+        xi=XI,
+        omega=OMEGA,
+        s_inv=S_INV,
+        simmetric=SIMMETRIC,
+        embed_dim=EMBED_DIM
     )
 
     # Lightning
