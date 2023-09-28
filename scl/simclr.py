@@ -13,12 +13,11 @@ from ResNet import ResNet
 from utils import load_dataset, load_knndataset
 
 
-class SwAV(L.LightningModule):
-    def __init__(self, imgsize, datasetname, output_dim=128, num_prototypes=100, temp=0.1, lr_init=3e-4):
+class SimCLR(L.LightningModule):
+    def __init__(self, imgsize, datasetname, optimizername, output_dim=128, temp=0.1, lr_init=3e-4):
         super().__init__()
         self.save_hyperparameters()
         self.model = ResNet(in_channels=3, num_classes=output_dim)
-        self.prototypes = nn.Linear(in_features=output_dim, out_features=num_prototypes)
         # KNN validation
         plaintraindataset, plainvaldataset = load_knndataset(name=datasetname, imgsize=imgsize)
         self.plain_trainloader = DataLoader(dataset=plaintraindataset, batch_size=512, shuffle=True, num_workers=20)
@@ -27,34 +26,44 @@ class SwAV(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
+    def ntXentLoss(self, xi, xj):
+        x = torch.cat([xi, xj], dim=0)
+        z = self.forward(x)
+        # ((2N, g) @ (g, 2N)) / (2N,1) @ (1,2N) -> (2N, 2N) / (2N,2N)
+        sim_matrix = (z @ z.T) / (z.norm(p=2, dim=1, keepdim=True) @ z.norm(p=2, dim=1, keepdim=True).T)
+        mask = torch.eye(z.shape[0], dtype=torch.bool, device=z.device)
+        pos_mask = mask.roll(shifts=sim_matrix.shape[0]//2, dims=1).bool()  # find pos-pair N away
+        pos = torch.exp(sim_matrix[pos_mask] / self.hparams.temp)
+        neg = torch.exp(sim_matrix.masked_fill(mask, value=float("-inf")) / self.hparams.temp)
+        loss = -torch.log(pos / torch.sum(neg))
+        #loss = - (sim_matrix[pos_mask] / self.hparams.temp / 2) + (torch.logsumexp(sim_matrix.masked_fill(mask, value=float("-inf")) / self.hparams.temp, dim=1) / 2)
+        # Find the rank for the positive pair
+        sim_matrix = torch.cat([sim_matrix[pos_mask].unsqueeze(1), sim_matrix.masked_fill(pos_mask,float("-inf"))], dim=1)
+        pos_pair_pos = torch.argsort(sim_matrix, descending=True, dim=1).argmin(dim=1)
+        top1 = torch.mean((pos_pair_pos == 0).float())
+        top5 = torch.mean((pos_pair_pos < 5).float())
+        mean_pos = torch.mean(pos_pair_pos.float())
+        return torch.mean(loss), top1, top5, mean_pos
+
     def _shared_step(self, batch, batch_idx, mode="train"):
         images, y = batch
-        with torch.no_grad():
-            w = model.prototypes.weight.data.clone()
-            w = F.normalize(w, dim=1, p=2)
-            model.prototypes.weight.copy_(w)
-        xt, xs = images
-        z = self.forward(torch.cat([xt, xs], dim=0))
-        z = F.normalize(z, p=2, dim=1)
-        B = z.shape[0] // 2
-        scores = self.prototypes(z)  # (2B,D) @ (D,K) -> (2B,K)
-        scores_t = scores[:B]
-        scores_s = scores[B:]
-        with torch.no_grad():
-            q_t = self.sinkhorn(scores_t)  # (B,K)
-            q_s = self.sinkhorn(scores_s)
-        p_t = F.softmax(scores_t / self.hparams.temp, dim=1)
-        p_s = F.softmax(scores_s / self.hparams.temp, dim=1)
-        #loss = -0.5 * torch.mean(torch.sum(q_t * torch.log(p_s) + q_s * torch.log(p_t), dim=1))  # (B,K)*(B,K) -> (B,1) -> (1,)
-        #loss = -0.5 * torch.mean(q_t * torch.log(p_s) + q_s * torch.log(p_t))  # (B,K)*(B,K) -> (B,1) -> (1,)
-        loss = torch.mean(-0.5 * torch.sum(q_t * torch.log(p_s), dim=1) + -0.5*torch.sum(q_s * torch.log(p_t), dim=1))
+        xi, xj = images
+        loss, top1, top5, mean_pos = self.ntXentLoss(xi, xj)
         self.log_dict({
             mode + "_loss": loss,
+            mode + "_topp1_acc": top1,
+            mode + "_topp5_acc": top5,
+            mode + "_mean_acc": mean_pos
         },
             on_step=True,
             on_epoch=True,
             prog_bar=False
         )
+        # if batch_idx % 100 == 0:
+        #     x_ = zip(xi[:8], xj[:8])
+        #     x_ = [xk for xl in x_ for xk in xl]
+        #     grid = torchvision.utils.make_grid(torch.stack(x_)[:8], nrow=4)
+        #     self.logger.experiment.add_image("cifar-10", grid, self.global_step)
         return {"loss": loss}
 
     def training_step(self, train_batch, batch_idx):
@@ -62,23 +71,6 @@ class SwAV(L.LightningModule):
 
     def validation_step(self, val_batch, batch_idx):
         return self._shared_step(val_batch, batch_idx, mode="val")
-
-    def on_after_backward(self):
-        if self.current_epoch < 10:
-            for name, param in self.model.named_parameters():
-                if "prototypes" in name:
-                    param.grad = None
-
-    def sinkhorn(self, scores, eps=0.05, niters=3):
-        B, K = scores.shape
-        Q = torch.exp(scores / eps).T  # (B,K) -> (K,B)
-        Q = Q / torch.sum(Q)
-        u, r, c = torch.zeros(K, device=self.device), torch.ones(K, device=self.device)/K, torch.ones(B, device=self.device)/B
-        for _ in range(niters):
-            u = torch.sum(Q, dim=1)
-            Q = Q * (r / u).unsqueeze(1)
-            Q = Q * (c / torch.sum(Q,dim=0)).unsqueeze(0)
-        return (Q / torch.sum(Q,dim=0, keepdim=True)).T  # ((K,B) / (1,B)).T -> ((K,B)/(K,B)).T -> (B,K)
 
     def configure_optimizers(self):
         if self.hparams.optimizername == "sgd":
@@ -124,8 +116,7 @@ class SwAV(L.LightningModule):
 
 
 if __name__ == "__main__":
-
-    # Datset
+    # Dataset
     DATASETNAME = "cifar10"
 
     # DATA AUGMENTATION
@@ -135,7 +126,6 @@ if __name__ == "__main__":
 
     # PARAMS
     TEMP = 0.1
-    NUM_PROTOTYPES = 3000
 
     # HYPERPARAMS
     BATCH_SIZE = 8
@@ -176,15 +166,15 @@ if __name__ == "__main__":
 
     torch.set_float32_matmul_precision('medium')
 
-    model = SwAV(
+    model = SimCLR(
         imgsize=IMG_SIZE,
         temp=TEMP,
-        num_prototypes=NUM_PROTOTYPES,
         lr_init=LR,
-        datasetname=DATASETNAME
+        datasetname=DATASETNAME,
+        optimizername=OPTIMIZER_NAME
     )
 
-    logger = TensorBoardLogger("tb_logs", name="swav")
+    logger = TensorBoardLogger("tb_logs", name="simclr")
     trainer = L.Trainer(
         logger=logger,
         max_epochs=MAX_EPOCHS,

@@ -1,5 +1,5 @@
 import torchvision
-from Augmentations import SwavTrainTransform, SwavEvalTransform
+from Augmentations import SwavTrainTransform, SwavEvalTransform, MNISTEvalTransform, MNISTTrainTransform
 
 
 def load_dataset(name):
@@ -49,13 +49,13 @@ def load_knndataset(name, imgsize):
             root="./data",
             train=True,
             download=True,
-            transform=SwavEvalTransform(imgsize, num_views=1, dataset=name)
+            transform=MNISTEvalTransform(imgsize, num_views=1)
         )
         plainvaldataset = torchvision.datasets.MNIST(
             root="./data",
             train=False,
             download=True,
-            transform=SwavEvalTransform(imgsize, num_views=1, dataset=name)
+            transform=MNISTEvalTransform(imgsize, num_views=1)
         )
 
     return plaintraindataset, plainvaldataset

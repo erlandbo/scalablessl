@@ -28,6 +28,9 @@ class SCL(L.LightningModule):
                  lr_init,
                  datasetname,
                  modelname,
+                 optimizername,
+                 usescheduler,
+                 batchsize
                  ):
         super().__init__()
         self.save_hyperparameters()
@@ -43,7 +46,7 @@ class SCL(L.LightningModule):
         self.register_buffer("ro", torch.ones(1,) + ro)  # [0,1] forgetting rate s_inv
         self.register_buffer("N", torch.zeros(1,) + N_samples)  # N samples in dataset
         self.T = T_iterations
-        self.t = N_coeff
+        self.t = N_coeff  # s-coefficient N**t
         # KNN validation
         plaintraindataset, plainvaldataset = load_knndataset(name=datasetname, imgsize=imgsize)
         self.plain_trainloader = DataLoader(dataset=plaintraindataset, batch_size=512, shuffle=True, num_workers=20)
@@ -56,7 +59,7 @@ class SCL(L.LightningModule):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
         elif self.hparams.simmetric == "l2":
-            return 1 / (torch.sum((z1 - z2)**2, dim=1))  # fix div /0
+            return 1 / (torch.sum((z1 - z2)**2, dim=1))  # fix div / 0
         else:  # "cossim"
             z1 = z1.norm(p=2, dim=1, keepdim=True)
             z2 = z2.norm(p=2, dim=1, keepdim=True)
@@ -71,19 +74,20 @@ class SCL(L.LightningModule):
         B = x_i.shape[0]
         z = self.forward(torch.cat([x_i, xhat_i, x_j], dim=0))
         z_i, zhat_i, z_j = z[0:B], z[B:2*B], z[2*B:3*B]
-        # positive forces
-        qii = self._sim_metric(z_i, zhat_i)
+        # Positive forces
+        qii = self._sim_metric(z_i, zhat_i)  # (B,1)
         positive_forces = torch.mean( - torch.log(qii) )
         self.xi = self.xi + torch.sum(self.alpha * qii).detach()
         self.omega = self.omega + self.alpha * B
-        # negative forces
-        qij = self._sim_metric(z_i, z_j)
-        negative_forces = torch.mean( self.N**self.t * qij / self.s_inv)
+        # Negative forces
+        qij = self._sim_metric(z_i, z_j)  # (B,1)
+        negative_forces = torch.mean( self.N**self.t * qij / self.s_inv )
         self.xi = self.xi + torch.sum( (1 - self.alpha) * qij ).detach()
         self.omega = self.omega + (1 - self.alpha) * B
         # Update
-        self.ro = self.N**self.t / (self.N**self.t + self.omega)
-        self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.t * self.xi / self.omega
+        # if mode == "train":
+        #     self.ro = self.N**self.t / (self.N**self.t + self.omega)
+        #     self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.t * self.xi / self.omega
 
         loss = positive_forces + negative_forces
 
@@ -112,33 +116,41 @@ class SCL(L.LightningModule):
             on_epoch=True,
             prog_bar=False
         )
-        return self._shared_step(train_batch, batch_idx, mode="train")
+        loss = self._shared_step(train_batch, batch_idx, mode="train")
+        # Update
+        self.ro = self.N**self.t / (self.N**self.t + self.omega)
+        self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.t * self.xi / self.omega
+        return loss
 
     def validation_step(self, val_batch, batch_idx):
         return self._shared_step(val_batch, batch_idx, mode="val")
 
     def configure_optimizers(self):
-        # optimizer = torch.optim.SGD(
-        #     self.model.parameters(),
-        #     lr=self.hparams.lr_init,
-        #     momentum=0.8
-        # )
-        optimizer = torch.optim.Adam(
-            self.model.parameters(),
-            lr=self.hparams.lr_init,
-        )
-        # start with initial lr, cosine anneal to 0 then restart.
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max = self.T,  # max iterations
-            eta_min=0.0
-        )
-        scheduler = {
-            "scheduler": scheduler,
-            "interval": "step",
-            "frequency": 1
-        }
-        return [optimizer], [scheduler]
+        if self.hparams.optimizername == "sgd":
+            optimizer = torch.optim.SGD(
+                self.model.parameters(),
+                lr=self.hparams.lr_init,
+                momentum=0.8
+            )
+        else:
+            optimizer = torch.optim.Adam(
+                self.model.parameters(),
+                lr=self.hparams.lr_init,
+            )
+        # start with initial lr and anneal.
+        if self.hparams.usescheduler:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max = self.T,  # max iterations
+                eta_min=0.0  # min lr
+            )
+            scheduler = {
+                "scheduler": scheduler,
+                "interval": "step",
+                "frequency": 1
+            }
+            return [optimizer], [scheduler]
+        return [optimizer]
 
     def on_validation_epoch_end(self):
         with torch.no_grad():
@@ -160,7 +172,7 @@ class SCL(L.LightningModule):
 
 if __name__ == "__main__":
     # DATASET
-    DATASET = "cifar10" # TODO change augmentations for MNIST. Separate aug MNIST and cifar10 since flipping etc
+    DATASET = "cifar10"
 
     # DATA AUGMENTATION
     COLOR_JITTER_STRENGTH = 0.5
@@ -168,10 +180,11 @@ if __name__ == "__main__":
     IMG_SIZE = 32
 
     # HYPERPARAMS
-    BATCH_SIZE = 64
+    BATCH_SIZE = 8
     NUM_WORKERS = 20
     OPTIMIZER_NAME = "adam"
     LR_INIT = 3e-4  # lr?
+    USESCHEDULER = False
 
     traindataset, valdataset = load_dataset(DATASET)
 
@@ -202,7 +215,7 @@ if __name__ == "__main__":
     RO = 1.0
     XI = 0.0
     OMEGA = 0.0
-    N_COEFF = 0.6
+    N_COEFF = 0.7
     S_INV = N_SAMPLES ** N_COEFF
     EMBED_DIM = 128
     SIMMETRIC = "stud-tkernel"  # "cossim", "l2", "stud-tkernel"
@@ -217,6 +230,7 @@ if __name__ == "__main__":
         T_iterations=T_ITER,
         datasetname=DATASET,
         modelname=MODELNAME,
+        optimizername=OPTIMIZER_NAME,
         alpha=ALPHA,
         ro=RO,
         xi=XI,
@@ -224,7 +238,9 @@ if __name__ == "__main__":
         s_inv=S_INV,
         simmetric=SIMMETRIC,
         embed_dim=EMBED_DIM,
-        N_coeff=N_COEFF
+        N_coeff=N_COEFF,
+        usescheduler=USESCHEDULER,
+        batchsize=BATCH_SIZE
     )
 
     # Lightning
