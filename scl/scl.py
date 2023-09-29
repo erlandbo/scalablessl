@@ -85,7 +85,7 @@ class SCL(L.LightningModule):
         self.xi = self.xi + torch.sum( (1 - self.alpha) * qij ).detach()
         self.omega = self.omega + (1 - self.alpha) * B
         # Update
-        # if mode == "train":
+        # if mode == "train": # Update only in train-mode
         #     self.ro = self.N**self.t / (self.N**self.t + self.omega)
         #     self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.t * self.xi / self.omega
 
@@ -180,7 +180,7 @@ if __name__ == "__main__":
     IMG_SIZE = 32
 
     # HYPERPARAMS
-    BATCH_SIZE = 8
+    BATCH_SIZE = 256
     NUM_WORKERS = 20
     OPTIMIZER_NAME = "adam"
     LR_INIT = 3e-4  # lr?
