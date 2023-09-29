@@ -14,7 +14,7 @@ from utils import load_dataset, load_knndataset
 
 
 class SimCLR(L.LightningModule):
-    def __init__(self, imgsize, datasetname, optimizername, output_dim=128, temp=0.1, lr_init=3e-4):
+    def __init__(self, batchsize, imgsize, datasetname, optimizername, output_dim=128, temp=0.1, lr_init=3e-4):
         super().__init__()
         self.save_hyperparameters()
         self.model = ResNet(in_channels=3, num_classes=output_dim)
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     # HYPERPARAMS
     BATCH_SIZE = 8
     NUM_WORKERS = 20
-    MAX_EPOCHS = 50
+    MAX_EPOCHS = 200
     OPTIMIZER_NAME = "adam"  # "LARS"
     LR = 3e-4  # 0.075 * BATCH_SIZE ** 0.5
 
@@ -171,10 +171,11 @@ if __name__ == "__main__":
         temp=TEMP,
         lr_init=LR,
         datasetname=DATASETNAME,
-        optimizername=OPTIMIZER_NAME
+        optimizername=OPTIMIZER_NAME,
+        batchsize=BATCH_SIZE
     )
 
-    logger = TensorBoardLogger("tb_logs", name="simclr")
+    logger = TensorBoardLogger("tb_logs", name="others")
     trainer = L.Trainer(
         logger=logger,
         max_epochs=MAX_EPOCHS,

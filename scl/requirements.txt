@@ -6,4 +6,3 @@ scikit-learn
 lightning
 tensorboard
 numpy
-scipy

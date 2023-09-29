@@ -30,7 +30,8 @@ class SCL(L.LightningModule):
                  modelname,
                  optimizername,
                  usescheduler,
-                 batchsize
+                 batchsize,
+                 num_workers
                  ):
         super().__init__()
         self.save_hyperparameters()
@@ -49,8 +50,9 @@ class SCL(L.LightningModule):
         self.t = N_coeff  # s-coefficient N**t
         # KNN validation
         plaintraindataset, plainvaldataset = load_knndataset(name=datasetname, imgsize=imgsize)
-        self.plain_trainloader = DataLoader(dataset=plaintraindataset, batch_size=512, shuffle=True, num_workers=20)
-        self.plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=20)
+        self.plain_trainloader = DataLoader(dataset=plaintraindataset, batch_size=512, shuffle=True, num_workers=num_workers)
+        self.plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=num_workers)
+
 
     def forward(self, x):
         return self.model(x)
@@ -180,7 +182,7 @@ if __name__ == "__main__":
     IMG_SIZE = 32
 
     # HYPERPARAMS
-    BATCH_SIZE = 256
+    BATCH_SIZE = 8
     NUM_WORKERS = 20
     OPTIMIZER_NAME = "adam"
     LR_INIT = 3e-4  # lr?
@@ -215,7 +217,7 @@ if __name__ == "__main__":
     RO = 1.0
     XI = 0.0
     OMEGA = 0.0
-    N_COEFF = 0.7
+    N_COEFF = 0.7  # 0.7
     S_INV = N_SAMPLES ** N_COEFF
     EMBED_DIM = 128
     SIMMETRIC = "stud-tkernel"  # "cossim", "l2", "stud-tkernel"
@@ -240,7 +242,8 @@ if __name__ == "__main__":
         embed_dim=EMBED_DIM,
         N_coeff=N_COEFF,
         usescheduler=USESCHEDULER,
-        batchsize=BATCH_SIZE
+        batchsize=BATCH_SIZE,
+        num_workers=NUM_WORKERS
     )
 
     # Lightning
@@ -256,9 +259,10 @@ if __name__ == "__main__":
         callbacks=[
             ModelCheckpoint(
                 save_weights_only=True,
-                mode="min",
-                monitor="val_loss",
-                save_last=True
+                mode="max",
+                monitor="knn_acc",
+                save_last=True,
+                save_on_train_epoch_end=False  # save on val-epoch end
             ),
             LearningRateMonitor("step")
         ]
