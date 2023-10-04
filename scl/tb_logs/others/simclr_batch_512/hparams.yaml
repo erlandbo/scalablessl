@@ -1,0 +1,6 @@
+datasetname: cifar10
+imgsize: 32
+lr_init: 0.0003
+optimizername: adam
+output_dim: 128
+temp: 0.1

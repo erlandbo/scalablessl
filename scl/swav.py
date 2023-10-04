@@ -11,6 +11,7 @@ from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
 from ResNet import ResNet
 from utils import load_dataset, load_knndataset
+from eval_embeddings import compute_embeddings
 
 
 class SwAV(L.LightningModule):
@@ -203,5 +204,14 @@ if __name__ == "__main__":
         ]
     )
 
-    trainer.fit(model, train_dataloaders=trainloader, val_dataloaders=valloader)
+    #trainer.fit(model, train_dataloaders=trainloader, val_dataloaders=valloader)
+
+    # KNN validation
+    plaintraindataset, plainvaldataset = load_knndataset(name=DATASETNAME, imgsize=IMG_SIZE)
+    plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=NUM_WORKERS)
+
+    BASEMODEL_CHECKPOINT = "tb_logs/others/swav_batch_512/checkpoints/last.ckpt"
+    model = model.load_from_checkpoint(BASEMODEL_CHECKPOINT)
+
+    compute_embeddings(model, plain_valloader, logpath="./tb_logs/others/embeddings0/")
 

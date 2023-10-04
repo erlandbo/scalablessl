@@ -1,0 +1,8 @@
+batchsize: 64
+datasetname: cifar10
+imgsize: 32
+lr_init: 0.0003
+num_prototypes: 3000
+optimizername: adam
+output_dim: 128
+temp: 0.1

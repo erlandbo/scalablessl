@@ -10,6 +10,7 @@ from utils import load_dataset, load_knndataset
 from torch.utils.data import DataLoader, RandomSampler
 from FeedForward import FeedForward
 from ResNet import ResNet
+from eval_embeddings import compute_embeddings
 
 
 class SCL(L.LightningModule):
@@ -53,15 +54,15 @@ class SCL(L.LightningModule):
         self.plain_trainloader = DataLoader(dataset=plaintraindataset, batch_size=512, shuffle=True, num_workers=num_workers)
         self.plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=num_workers)
 
-
     def forward(self, x):
         return self.model(x)
 
     def _sim_metric(self, z1, z2):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
-        elif self.hparams.simmetric == "l2":
-            return 1 / (torch.sum((z1 - z2)**2, dim=1))  # fix div / 0
+        elif self.hparams.simmetric == "gaussian":
+            sig = 2  # TODO how find suitable variance?
+            return torch.exp(- torch.sum((z1 - z2)**2, dim=1) / (sig **2))
         else:  # "cossim"
             z1 = z1.norm(p=2, dim=1, keepdim=True)
             z2 = z2.norm(p=2, dim=1, keepdim=True)
@@ -182,7 +183,7 @@ if __name__ == "__main__":
     IMG_SIZE = 32
 
     # HYPERPARAMS
-    BATCH_SIZE = 8
+    BATCH_SIZE = 256
     NUM_WORKERS = 20
     OPTIMIZER_NAME = "adam"
     LR_INIT = 3e-4  # lr?
@@ -217,10 +218,10 @@ if __name__ == "__main__":
     RO = 1.0
     XI = 0.0
     OMEGA = 0.0
-    N_COEFF = 0.4  # 0.7
-    S_INV = N_SAMPLES ** N_COEFF
+    N_COEFF = 0.7  # 0.7
+    S_INV = N_SAMPLES**2 / 10**2  # s_init = 10^t * N^-2
     EMBED_DIM = 128
-    SIMMETRIC = "stud-tkernel"  # "cossim", "l2", "stud-tkernel"
+    SIMMETRIC = "gaussian"  # "cossim", "gaussian", "stud-tkernel"
 
     MAX_EPOCHS = -1
     # MAX_STEPS = T_ITER
@@ -268,5 +269,15 @@ if __name__ == "__main__":
         ]
     )
 
-    trainer.fit(model, train_dataloaders=trainloader, val_dataloaders=valloader)
+    #trainer.fit(model, train_dataloaders=trainloader, val_dataloaders=valloader)
+
+    ######################
+    # KNN validation
+    plaintraindataset, plainvaldataset = load_knndataset(name=DATASET, imgsize=IMG_SIZE)
+    plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=NUM_WORKERS)
+
+    BASEMODEL_CHECKPOINT = "tb_logs/scl/version_6/checkpoints/epoch=271-step=53312.ckpt"
+    model = model.load_from_checkpoint(BASEMODEL_CHECKPOINT)
+
+    compute_embeddings(model, plain_valloader, logpath="./tb_logs/scl/embeddings0/")
 
