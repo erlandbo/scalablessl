@@ -1,61 +1,88 @@
 import torchvision
-from Augmentations import SwavTrainTransform, SwavEvalTransform, MNISTEvalTransform, MNISTTrainTransform
+from ImageAugmentations import SCLEvalTransform
+from torch.utils.data import random_split
+
+def get_image_stats(dataset):
+    image_stats = {
+        "cifar10": [(0.4915, 0.4823, 0.4468), (0.2470, 0.2435, 0.2616)],
+    }
+    mu, sigma = (0.5,), (0.5,)
+    if dataset in image_stats.keys():
+        mu, sigma = image_stats[dataset]
+    return mu, sigma
 
 
-def load_dataset(name):
-    traindataset, valdataset = None, None
-    if name == "cifar10":
+def load_imagedataset(datasetname, val_split=0.2):
+    traindataset, testdataset = None, None
+    mean, std = (0.5,), (0.5,)
+    if datasetname == "cifar10":
         traindataset = torchvision.datasets.CIFAR10(
             root="./data",
             train=True,
-            download=True
+            download=True,
+            transform=None
         )
-        valdataset = torchvision.datasets.CIFAR10(
+        testdataset = torchvision.datasets.CIFAR10(
             root="./data",
             train=False,
-            download=True
+            download=True,
+            transform=None
         )
-    elif name == "mnist":
+        mean, std = get_image_stats(datasetname)
+    elif datasetname == "mnist":
         traindataset = torchvision.datasets.MNIST(
             root="./data",
             train=True,
-            download=True
+            download=True,
+            transform=None
         )
-        valdataset = torchvision.datasets.MNIST(
-            root="./data",
-            train=False,
-            download=True
-        )
-    return traindataset, valdataset
-
-
-def load_knndataset(name, imgsize):
-    plaintraindataset, plainvaldataset = None, None
-    if name == "cifar10":
-        plaintraindataset = torchvision.datasets.CIFAR10(
+        testdataset = torchvision.datasets.MNIST(
             root="./data",
             train=True,
             download=True,
-            transform=SwavEvalTransform(imgsize, num_views=1, dataset=name)
+            transform=None
         )
-        plainvaldataset = torchvision.datasets.CIFAR10(
-            root="./data",
-            train=False,
-            download=True,
-            transform=SwavEvalTransform(imgsize, num_views=1, dataset=name)
-        )
-    elif name == "mnist":
-        plaintraindataset = torchvision.datasets.MNIST(
+    elif datasetname == "fashionmnist":
+        traindataset = torchvision.datasets.FashionMNIST(
             root="./data",
             train=True,
             download=True,
-            transform=MNISTEvalTransform(imgsize, num_views=1)
+            transform=None
         )
-        plainvaldataset = torchvision.datasets.MNIST(
+        testdataset = torchvision.datasets.FashionMNIST(
             root="./data",
-            train=False,
+            train=True,
             download=True,
-            transform=MNISTEvalTransform(imgsize, num_views=1)
+            transform=None
         )
+    elif datasetname == "svhn":
+        traindataset = torchvision.datasets.SVHN(
+            root="./data",
+            split="train",
+            download=True,
+            transform=None
+        )
+        testdataset = torchvision.datasets.SVHN(
+            root="./data",
+            split="train",
+            download=True,
+            transform=None
+        )
+    elif datasetname == "svhn":
+        traindataset = torchvision.datasets.CelebA(
+            root="./data",
+            split="train",
+            download=True,
+            transform=None
+        )
+        testdataset = torchvision.datasets.CelebA(
+            root="./data",
+            split="train",
+            download=True,
+            transform=None
+        )
+    trainsize = int((1.0 - val_split) * len(traindataset))
+    valsize = len(traindataset) - trainsize
+    traindataset, valdataset = random_split(traindataset, lengths=[trainsize, valsize])
+    return traindataset, valdataset, testdataset, mean, std
 
-    return plaintraindataset, plainvaldataset

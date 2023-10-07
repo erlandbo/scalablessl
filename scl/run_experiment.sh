@@ -1,0 +1,28 @@
+# CIFAR10
+python main_scl.py \
+--dataset cifar10 \
+--jitterstrength 0.5 \
+--gausblur False \
+--imgsize 32 \
+--pflip True \
+--batchsize 512 \
+--numworkers 20 \
+--lr 3e-4 \
+--scheduler False \
+--optimizer adam \
+--valsplit 0.2 \
+--alpha 0.5 \
+--titer 1_000_000 \
+--ro 1.0 \
+--xi 0.0 \
+--omega 0.0 \
+--ncoeff 0.7 \
+--sinv_init_coeff 2.0 \
+--simmetric gaussian \
+--sigma 2.0 \
+--maxepochs -1 \
+--modelarch resnet \
+--in_channels 3 \
+--embed_dim 128 \
+--normlayer True \
+--maxpool1 True

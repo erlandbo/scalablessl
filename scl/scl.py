@@ -1,58 +1,39 @@
 import torch
 import lightning as L
-from Datasets import SCLDataset
-from lightning.pytorch.loggers import TensorBoardLogger
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
-from Augmentations import SwavTrainTransform
-from utils import load_dataset, load_knndataset
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader
 from FeedForward import FeedForward
 from ResNet import ResNet
-from eval_embeddings import compute_embeddings
+import torchvision
+from utils import get_image_stats
 
 
 class SCL(L.LightningModule):
-    def __init__(self,
-                 s_inv,
-                 xi,
-                 omega,
-                 ro,
-                 alpha,
-                 imgsize,
-                 N_samples,
-                 N_coeff,
-                 simmetric,
-                 T_iterations,
-                 embed_dim,
-                 lr_init,
-                 datasetname,
-                 modelname,
-                 optimizername,
-                 usescheduler,
-                 batchsize,
-                 num_workers
-                 ):
+    def __init__(self, hparams):
         super().__init__()
-        self.save_hyperparameters()
-        if modelname == "resnet":
-            self.model = ResNet(in_channels=3, num_classes=embed_dim)
+        self.save_hyperparameters(hparams)
+        if self.hparams.modelarch == "resnet":
+            self.model = ResNet(
+                in_channels=self.hparams.in_channels,
+                embed_dim=self.hparams.embed_dim,
+                normlayer=self.hparams.normlayer,
+                usemaxpool1=self.hparams.maxpool1
+            )
         else:
-            self.model = FeedForward(in_channels=3, imgsize=imgsize, out_features=embed_dim)
+            self.model = FeedForward(in_channels=3, imgsize=self.hparams.imgsize, out_features=self.hparams.embed_dim)
         # buffer's current values can be loaded using the state_dict of the module which might be useful to know
-        self.register_buffer("xi", torch.zeros(1,) + xi)  # weighted sum q
-        self.register_buffer("omega", torch.zeros(1,) + omega)  # count q
-        self.register_buffer("s_inv", torch.zeros(1,) + s_inv)  # scale parameter measure discrepancy between p and q
-        self.register_buffer("alpha", torch.zeros(1,) + alpha)  # [0,1] adaptively extra attraction to ease training
-        self.register_buffer("ro", torch.ones(1,) + ro)  # [0,1] forgetting rate s_inv
-        self.register_buffer("N", torch.zeros(1,) + N_samples)  # N samples in dataset
-        self.T = T_iterations
-        self.t = N_coeff  # s-coefficient N**t
-        # KNN validation
-        plaintraindataset, plainvaldataset = load_knndataset(name=datasetname, imgsize=imgsize)
-        self.plain_trainloader = DataLoader(dataset=plaintraindataset, batch_size=512, shuffle=True, num_workers=num_workers)
-        self.plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=num_workers)
+        self.register_buffer("xi", torch.zeros(1,) + self.hparams.xi)  # weighted sum q
+        self.register_buffer("omega", torch.zeros(1,) + self.hparams.omega)  # count q
+        # TODO find best sinv_init
+        # sinv_init = self.hparams.nsamples** 2 / 10**self.hparams.sinv_init_coeff   # s_init = 10^t * N^-2
+        sinv_init = self.hparams.nsamples**self.hparams.ncoeff   # s_init = 10^t * N^-2
+        self.register_buffer("s_inv", torch.zeros(1,) + sinv_init)  # scale parameter measure discrepancy between p and q
+        self.register_buffer("alpha", torch.zeros(1,) + self.hparams.alpha)  # [0,1] adaptively extra attraction to ease training
+        self.register_buffer("ro", torch.zeros(1,) + self.hparams.ro)  # [0,1] forgetting rate s_inv
+        self.register_buffer("N", torch.zeros(1,) + self.hparams.nsamples)  # N samples in dataset
+        self.T = self.hparams.titer
+        self.tau = self.hparams.ncoeff  # s-coefficient N**t
 
     def forward(self, x):
         return self.model(x)
@@ -61,8 +42,7 @@ class SCL(L.LightningModule):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
         elif self.hparams.simmetric == "gaussian":
-            sig = 2  # TODO how find suitable variance?
-            return torch.exp(- torch.sum((z1 - z2)**2, dim=1) / (sig **2))
+            return torch.exp(- torch.sum((z1 - z2)**2, dim=1) / (self.hparams.sigma**2))
         else:  # "cossim"
             z1 = z1.norm(p=2, dim=1, keepdim=True)
             z2 = z2.norm(p=2, dim=1, keepdim=True)
@@ -84,13 +64,10 @@ class SCL(L.LightningModule):
         self.omega = self.omega + self.alpha * B
         # Negative forces
         qij = self._sim_metric(z_i, z_j)  # (B,1)
-        negative_forces = torch.mean( self.N**self.t * qij / self.s_inv )
+        negative_forces = torch.mean( self.N**self.tau * qij / self.s_inv )
         self.xi = self.xi + torch.sum( (1 - self.alpha) * qij ).detach()
         self.omega = self.omega + (1 - self.alpha) * B
-        # Update
-        # if mode == "train": # Update only in train-mode
-        #     self.ro = self.N**self.t / (self.N**self.t + self.omega)
-        #     self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.t * self.xi / self.omega
+        # Update only in train-step
 
         loss = positive_forces + negative_forces
 
@@ -121,27 +98,29 @@ class SCL(L.LightningModule):
         )
         loss = self._shared_step(train_batch, batch_idx, mode="train")
         # Update
-        self.ro = self.N**self.t / (self.N**self.t + self.omega)
-        self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.t * self.xi / self.omega
+        self.ro = self.N**self.tau / (self.N**self.tau + self.omega)
+        self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.tau * self.xi / self.omega
         return loss
 
     def validation_step(self, val_batch, batch_idx):
-        return self._shared_step(val_batch, batch_idx, mode="val")
+        loss = self._shared_step(val_batch, batch_idx, mode="val")
+        if batch_idx % 44 == 0:
+            self._show_images(val_batch)
 
     def configure_optimizers(self):
-        if self.hparams.optimizername == "sgd":
+        if self.hparams.optimizer == "sgd":
             optimizer = torch.optim.SGD(
                 self.model.parameters(),
-                lr=self.hparams.lr_init,
+                lr=self.hparams.lr,
                 momentum=0.8
             )
         else:
             optimizer = torch.optim.Adam(
                 self.model.parameters(),
-                lr=self.hparams.lr_init,
+                lr=self.hparams.lr,
             )
         # start with initial lr and anneal.
-        if self.hparams.usescheduler:
+        if self.hparams.scheduler:
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 T_max = self.T,  # max iterations
@@ -155,14 +134,19 @@ class SCL(L.LightningModule):
             return [optimizer], [scheduler]
         return [optimizer]
 
+    # TODO Better ways to set finetune dataset?
+    def load_knn_finetune_dataset(self, traindataset, testdataset):
+        self.finetune_trainloader = DataLoader(dataset=traindataset, batch_size=512, shuffle=True, num_workers=self.hparams.numworkers)
+        self.finetune_testloader = DataLoader(dataset=testdataset, batch_size=512, shuffle=False, num_workers=self.hparams.numworkers)
+
     def on_validation_epoch_end(self):
         with torch.no_grad():
             knn = KNeighborsClassifier()
             X_train, X_val, y_train, y_val = [], [], [], []
-            for X, y in self.plain_trainloader:
+            for X, y in self.finetune_trainloader:
                 X_train.append(self.model(X.to(self.device)).detach().cpu().numpy())
                 y_train.append(y.detach().numpy())
-            for X, y in self.plain_valloader:
+            for X, y in self.finetune_testloader:
                 X_val.append(self.model(X.to(self.device)).detach().cpu().numpy())
                 y_val.append(y.detach().numpy())
             X_train, y_train = np.concatenate(X_train), np.concatenate(y_train)
@@ -172,112 +156,15 @@ class SCL(L.LightningModule):
             acc = np.mean(y_hat == y_val)
             self.log("knn_acc", acc)
 
-
-if __name__ == "__main__":
-    # DATASET
-    DATASET = "cifar10"
-
-    # DATA AUGMENTATION
-    COLOR_JITTER_STRENGTH = 0.5
-    GAUSSIAN_BLUR = False
-    IMG_SIZE = 32
-
-    # HYPERPARAMS
-    BATCH_SIZE = 256
-    NUM_WORKERS = 20
-    OPTIMIZER_NAME = "adam"
-    LR_INIT = 3e-4  # lr?
-    USESCHEDULER = False
-
-    traindataset, valdataset = load_dataset(DATASET)
-
-    traindataset = SCLDataset(traindataset,
-                              transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR, num_views=1, dataset=DATASET),
-                              )
-    valdataset = SCLDataset(valdataset,
-                            transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR, num_views=1, dataset=DATASET),
-                            )
-
-    # NOTE: sampling with replacement
-    trainloader = DataLoader(traindataset,
-                             batch_size=BATCH_SIZE,
-                             num_workers=NUM_WORKERS,
-                             sampler=RandomSampler(traindataset, replacement=True)  # Sample randomly with replacement
-                             )
-    valloader = DataLoader(valdataset,
-                           batch_size=BATCH_SIZE,
-                           num_workers=NUM_WORKERS,
-                           sampler=RandomSampler(valdataset, replacement=True)
-                           )
-
-    # PARAMS
-    MODELNAME = "resnet"
-    N_SAMPLES = len(traindataset)
-    ALPHA = 0.5
-    T_ITER = 1_000_000
-    RO = 1.0
-    XI = 0.0
-    OMEGA = 0.0
-    N_COEFF = 0.7  # 0.7
-    S_INV = N_SAMPLES**2 / 10**2  # s_init = 10^t * N^-2
-    EMBED_DIM = 128
-    SIMMETRIC = "gaussian"  # "cossim", "gaussian", "stud-tkernel"
-
-    MAX_EPOCHS = -1
-    # MAX_STEPS = T_ITER
-
-    model = SCL(
-        imgsize=IMG_SIZE,
-        lr_init=LR_INIT,
-        N_samples=len(traindataset),
-        T_iterations=T_ITER,
-        datasetname=DATASET,
-        modelname=MODELNAME,
-        optimizername=OPTIMIZER_NAME,
-        alpha=ALPHA,
-        ro=RO,
-        xi=XI,
-        omega=OMEGA,
-        s_inv=S_INV,
-        simmetric=SIMMETRIC,
-        embed_dim=EMBED_DIM,
-        N_coeff=N_COEFF,
-        usescheduler=USESCHEDULER,
-        batchsize=BATCH_SIZE,
-        num_workers=NUM_WORKERS
-    )
-
-    # Lightning
-    torch.set_float32_matmul_precision('medium')
-
-    logger = TensorBoardLogger("tb_logs", name="scl")
-    trainer = L.Trainer(
-        logger=logger,
-        max_epochs=MAX_EPOCHS,
-        max_steps=T_ITER,
-        precision=32,
-        accelerator="gpu",
-        callbacks=[
-            ModelCheckpoint(
-                save_weights_only=True,
-                mode="max",
-                monitor="knn_acc",
-                save_last=True,
-                save_on_train_epoch_end=False  # save on val-epoch end
-            ),
-            LearningRateMonitor("step")
-        ]
-    )
-
-    #trainer.fit(model, train_dataloaders=trainloader, val_dataloaders=valloader)
-
-    ######################
-    # KNN validation
-    plaintraindataset, plainvaldataset = load_knndataset(name=DATASET, imgsize=IMG_SIZE)
-    plain_valloader = DataLoader(dataset=plainvaldataset, batch_size=512, shuffle=False, num_workers=NUM_WORKERS)
-
-    BASEMODEL_CHECKPOINT = "tb_logs/scl/version_6/checkpoints/epoch=271-step=53312.ckpt"
-    model = model.load_from_checkpoint(BASEMODEL_CHECKPOINT)
-
-    compute_embeddings(model, plain_valloader, logpath="./tb_logs/scl/embeddings0/")
+    def _show_images(self, batch):
+        mu, sigma = get_image_stats(self.hparams.dataset)
+        mu = torch.tensor(mu, device=self.device)[:, None, None]
+        sigma = torch.tensor(sigma, device=self.device)[:, None, None]
+        num_imgs = 4
+        x_i, xhat_i, x_j = batch
+        x_i, xhat_i, x_j = x_i[:num_imgs], xhat_i[:num_imgs], x_j[:num_imgs]
+        x_ = zip(x_i, xhat_i, x_j)
+        x_ = [xk * sigma + mu for xl in x_ for xk in xl]
+        grid = torchvision.utils.make_grid(torch.stack(x_)[:12], nrow=3)
+        self.logger.experiment.add_image(self.hparams.dataset, grid, self.global_step)
 

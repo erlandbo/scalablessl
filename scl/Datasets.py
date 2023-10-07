@@ -19,3 +19,19 @@ class SCLDataset(Dataset):
 
     def __len__(self):
         return len(self.basedataset)
+
+
+class SCLFinetuneDataset(Dataset):
+    def __init__(self, basedataset, transform):
+        self.basedataset = basedataset
+        self.transform = transform
+
+    def __getitem__(self, item):
+        x, y = self.basedataset[item]
+        x = self.transform(x)
+        return x, y
+
+    def __len__(self):
+        return len(self.basedataset)
+
+

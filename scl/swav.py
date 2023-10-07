@@ -3,7 +3,7 @@ import torch
 import lightning as L
 import torch.nn.functional as F
 import torchvision
-from Augmentations import SwavTrainTransform, MNISTTrainTransform
+from ImageAugmentations import SimCLRTrainTransform, MNISTTrainTransform
 from torch.utils.data import DataLoader
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
@@ -149,13 +149,13 @@ if __name__ == "__main__":
         traindataset = torchvision.datasets.CIFAR10(
             root="./data",
             train=True,
-            transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR),
+            transform=SimCLRTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR),
             download=True
         )
         valdataset = torchvision.datasets.CIFAR10(
             root="./data",
             train=False,
-            transform=SwavTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR),
+            transform=SimCLRTrainTransform(imgsize=IMG_SIZE, s=COLOR_JITTER_STRENGTH, gaus_blur=GAUSSIAN_BLUR),
             download=True
         )
     else:  # "mnist"
