@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 
 class PatchEmbed(nn.Module):
@@ -35,6 +36,7 @@ class MultiHeadAttention(nn.Module):
         weights = F.softmax(weights, dim=-1)
         attn = weights @ V  # (N,h,L,S) @ (N,h,S,dv) -> (N,h,L,dv)
         attn = self.W_O(attn.transpose(1,2).contiguous().view(N,L,Ev)) # (N,h,L,dv) -> (N,L,h,dv) -> (N,L,Ev)
+        self.weights = weights
         return attn
 
 
@@ -61,18 +63,18 @@ class EncoderLayer(nn.Module):
 
 
 class ViT(nn.Module):
-    def __init__(self, num_classes, imgsize, patch_dim, num_layers, d_model, nhead, d_ff_ratio, dropout=0.1, activation="relu"):
+    def __init__(self, out_dim, in_channels, imgsize, patch_dim, num_layers, d_model, nhead, d_ff_ratio, dropout=0.1, activation="relu"):
         super().__init__()
-        self.embed = PatchEmbed(imgsize=imgsize, patch_dim=patch_dim, embed_dim=d_model)
+        self.embed = PatchEmbed(imgsize=imgsize, patch_dim=patch_dim, embed_dim=d_model, in_channels=in_channels)
         self.encoder = nn.ModuleList(
             [EncoderLayer(d_model=d_model, nhead=nhead, d_ff=d_model*d_ff_ratio, dropout=dropout, activation=activation)
              for _ in range(num_layers)]
         )
-        self.classifier = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, num_classes)) if num_classes > 0 else nn.Identity()
+        self.fc = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, out_dim)) if out_dim > 0 else nn.Identity()
         self.cls_token = nn.Parameter(torch.rand(1, 1, d_model))
         self.posemb = nn.Parameter(torch.rand(1, self.embed.N_patches + 1, d_model))
         self.dropout = nn.Dropout(p=dropout)
-        self.num_classes = num_classes
+        self.num_classes = out_dim
 
     def forward(self, x):
         x = self.embed(x)  # (N,3,H,W) -> (N,H'W',d_model)
@@ -81,5 +83,24 @@ class ViT(nn.Module):
         x = self.dropout(x + self.posemb)
         for layer in self.encoder:
             x = layer(x)  # (N,num_patches+1,d_model)
-        x = self.classifier(x[:, 0])  # (N,d_model)
+        x = self.fc(x[:, 0])  # (N,d_model) -> (N,outdim)
         return x
+
+
+if __name__ == "__main__":
+    model = ViT(
+        out_dim=128,
+        in_channels=3,
+        imgsize=32,
+        patch_dim=4,
+        num_layers=7,
+        d_model=512,
+        nhead=8,
+        d_ff_ratio=4,
+        dropout=0.1,
+        activation="relu"
+    )
+    print(model)
+    x = torch.rand((8, 3, 32, 32))
+    out = model(x)
+    print(out.shape)

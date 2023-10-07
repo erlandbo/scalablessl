@@ -107,7 +107,7 @@ class ResNet(nn.Module):
         x = self.res3(x)
         x = self.res4(x)
         # x = self.pool(x)
-        print(x.shape)
+        # print(x.shape)
         x = torch.flatten(x, start_dim=1)
         x = self.fc(x)
         return x

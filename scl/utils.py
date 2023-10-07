@@ -2,6 +2,7 @@ import torchvision
 from ImageAugmentations import SCLEvalTransform
 from torch.utils.data import random_split
 
+
 def get_image_stats(dataset):
     image_stats = {
         "cifar10": [(0.4915, 0.4823, 0.4468), (0.2470, 0.2435, 0.2616)],
@@ -15,6 +16,7 @@ def get_image_stats(dataset):
 def load_imagedataset(datasetname, val_split=0.2):
     traindataset, testdataset = None, None
     mean, std = (0.5,), (0.5,)
+    num_classes = 0
     if datasetname == "cifar10":
         traindataset = torchvision.datasets.CIFAR10(
             root="./data",
@@ -29,6 +31,7 @@ def load_imagedataset(datasetname, val_split=0.2):
             transform=None
         )
         mean, std = get_image_stats(datasetname)
+        num_classes = 10
     elif datasetname == "mnist":
         traindataset = torchvision.datasets.MNIST(
             root="./data",
@@ -84,5 +87,5 @@ def load_imagedataset(datasetname, val_split=0.2):
     trainsize = int((1.0 - val_split) * len(traindataset))
     valsize = len(traindataset) - trainsize
     traindataset, valdataset = random_split(traindataset, lengths=[trainsize, valsize])
-    return traindataset, valdataset, testdataset, mean, std
+    return traindataset, valdataset, testdataset, mean, std, num_classes
 

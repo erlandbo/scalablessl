@@ -17,7 +17,7 @@ parser.add_argument("--gausblur", default=False, type=bool, help="Dataset GAUSSI
 parser.add_argument("--imgsize", default=32, type=int, help="IMG_SIZE")
 parser.add_argument("--pflip", default=True, type=bool, help="PFLIP")
 parser.add_argument("--batchsize", default=64, type=int, help="BATCH_SIZE")
-parser.add_argument("--numworkers", default=20, type=int, help="NUM_WORKERS")
+parser.add_argument("--numworkers", default=0, type=int, help="NUM_WORKERS")
 parser.add_argument("--lr", default=3e-4, type=float, help="LR_INIT")
 parser.add_argument("--scheduler", default=False, type=bool, help="USESCHEDULER")
 parser.add_argument("--optimizer", default="adam", type=str, help="OPTIMIZER")
@@ -38,7 +38,7 @@ parser.add_argument("--sigma", default=2.0, type=float, help="variance for gauss
 parser.add_argument("--maxepochs", default=-1, type=int)
 
 # Model architecture
-parser.add_argument("--modelarch", default="resnet", type=str, help="MODELNAME")
+parser.add_argument("--modelarch", default="vit", type=str, help="MODELNAME")
 
 # ResNet
 parser.add_argument("--in_channels", default=3, type=int)
@@ -46,13 +46,29 @@ parser.add_argument("--embed_dim", default=128, type=int, help="EMBED_DIM")
 parser.add_argument("--normlayer", default=True, type=bool, help="use batchnorm in resnet")
 parser.add_argument("--maxpool1", default=True, type=bool, help="use maxpool in first conv-layer")
 
+# ViT
+parser.add_argument("--transformer_patchdim", default=4, type=int)
+parser.add_argument("--transformer_numlayers", default=6, type=int)
+parser.add_argument("--transformer_dmodel", default=512, type=int)
+parser.add_argument("--transformer_nhead", default=8, type=int)
+parser.add_argument("--transformer_dff_ration", default=4, type=int)
+parser.add_argument("--transformer_dropout", default=0.1, type=float)
+parser.add_argument("--transformer_activation", default="relu", type=str)
+
+# Finetune
+parser.add_argument("--finetune_lr", default=3e-4, type=float)
+parser.add_argument("--finetune_batchsize", default=64, type=int)
+parser.add_argument("--finetune_knn", default=True, type=bool)
+parser.add_argument("--finetune_linear", default=False, type=bool)
+
 
 def main():
     arg = parser.parse_args()
 
-    traindataset, valdataset, testdataset, mean, std = load_imagedataset(datasetname=arg.dataset, val_split=arg.valsplit)
+    traindataset, valdataset, testdataset, mean, std, num_classes = load_imagedataset(datasetname=arg.dataset, val_split=arg.valsplit)
 
     arg.nsamples = len(traindataset)
+    arg.numclasses = num_classes
 
     # Train and val dataloader
     # NOTE: sampling with replacement
@@ -104,7 +120,7 @@ def main():
     model = SCL(arg)
 
     # TODO better ways to set finetune-dataset?
-    model.load_knn_finetune_dataset(finetune_traindataset, finetune_testloader)
+    model.load_finetune_dataset(finetune_traindataset, finetune_testloader)
 
     # Lightning
     torch.set_float32_matmul_precision('medium')
@@ -120,7 +136,7 @@ def main():
             ModelCheckpoint(
                 save_weights_only=True,
                 mode="max",
-                monitor="knn_acc",
+                monitor="knn_test_acc",
                 save_last=True,
                 save_on_train_epoch_end=False  # save on val-epoch end
             ),
@@ -139,3 +155,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    test = 10

@@ -25,4 +25,8 @@ python main_scl.py \
 --in_channels 3 \
 --embed_dim 128 \
 --normlayer True \
---maxpool1 True
+--maxpool1 True \
+--finetune_lr 3e-4 \
+--finetune_batchsize 64 \
+--finetune_knn False \
+--finetune_linear True \
