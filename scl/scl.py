@@ -1,31 +1,81 @@
+from typing import Any
+
 import torch
 import lightning as L
+from lightning.pytorch.utilities.types import STEP_OUTPUT
 from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
 from torch.utils.data import DataLoader
 from FeedForward import FeedForward
-from ResNet import ResNet
+from ResNet import resnet18, resnet9, resnet34
+from torchmodels import ResNettorch, ViTtorch
 import torchvision
 from utils import get_image_stats
-from ViT import ViT
+from ViT import SCLViT
 from torch.nn import functional as F
 import matplotlib.pyplot as plt
 from scl_finetuner import SCLFinetuner
+from Schedulers import linear_warmup_cosine_anneal
 
 
 class SCL(L.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
-        if self.hparams.modelarch == "resnet":
-            self.model = ResNet(
+        if self.hparams.modelarch == "resnet9":
+            self.model = resnet9(
                 in_channels=self.hparams.in_channels,
                 embed_dim=self.hparams.embed_dim,
                 normlayer=self.hparams.normlayer,
-                usemaxpool1=self.hparams.maxpool1
+                maxpool1=self.hparams.maxpool1,
+            )
+        elif self.hparams.modelarch == "resnet18":
+            self.model = resnet18(
+                in_channels=self.hparams.in_channels,
+                embed_dim=self.hparams.embed_dim,
+                normlayer=self.hparams.normlayer,
+                maxpool1=self.hparams.maxpool1,
+            )
+        elif self.hparams.modelarch == "resnet34":
+            self.model = resnet34(
+                in_channels=self.hparams.in_channels,
+                embed_dim=self.hparams.embed_dim,
+                normlayer=self.hparams.normlayer,
+                maxpool1=self.hparams.maxpool1,
+            )
+        elif self.hparams.modelarch == "resnet18torch":
+            self.model = ResNettorch(
+                modelname="resnet18torch",
+                in_channels=self.hparams.in_channels,
+                embed_dim=self.hparams.embed_dim,
+            )
+        elif self.hparams.modelarch == "resnet34torch":
+            self.model = ResNettorch(
+                modelname="resnet34torch",
+                in_channels=self.hparams.in_channels,
+                embed_dim=self.hparams.embed_dim,
+            )
+        elif self.hparams.modelarch == "resnet50torch":
+            self.model = ResNettorch(
+                modelname="resnet50torch",
+                in_channels=self.hparams.in_channels,
+                embed_dim=self.hparams.embed_dim,
             )
         elif self.hparams.modelarch == "vit":
-            self.model = ViT(
+            self.model = SCLViT(
+                out_dim=self.hparams.embed_dim,
+                imgsize=self.hparams.imgsize,
+                patch_dim=self.hparams.transformer_patchdim,
+                num_layers=self.hparams.transformer_numlayers,
+                d_model=self.hparams.transformer_dmodel,
+                nhead=self.hparams.transformer_nhead,
+                d_ff_ratio=self.hparams.transformer_dff_ration,
+                dropout=self.hparams.transformer_dropout,
+                activation=self.hparams.transformer_activation,
+                in_channels=self.hparams.in_channels,
+            )
+        elif self.hparams.modelarch == "vittorch":
+            self.model = ViTtorch(
                 out_dim=self.hparams.embed_dim,
                 imgsize=self.hparams.imgsize,
                 patch_dim=self.hparams.transformer_patchdim,
@@ -38,7 +88,11 @@ class SCL(L.LightningModule):
                 in_channels=self.hparams.in_channels,
             )
         else:
-            self.model = FeedForward(in_channels=3, imgsize=self.hparams.imgsize, out_features=self.hparams.embed_dim)
+            self.model = FeedForward(
+                in_channels=3,
+                imgsize=self.hparams.imgsize,
+                out_features=self.hparams.embed_dim
+            )
         # buffer's current values can be loaded using the state_dict of the module which might be useful to know
         self.register_buffer("xi", torch.zeros(1,) + self.hparams.xi)  # weighted sum q
         self.register_buffer("omega", torch.zeros(1,) + self.hparams.omega)  # count q
@@ -139,8 +193,9 @@ class SCL(L.LightningModule):
                 self.model.parameters(),
                 lr=self.hparams.lr,
             )
-        # start with initial lr and anneal.
-        if self.hparams.scheduler:
+
+        # use scheduler
+        if self.hparams.scheduler == "cosanneal":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
                 T_max = self.T,  # max iterations
@@ -152,26 +207,57 @@ class SCL(L.LightningModule):
                 "frequency": 1
             }
             return [optimizer], [scheduler]
-        return [optimizer]
+        elif self.hparams.scheduler == "linwarmup_cosanneal":
+            scheduler = {
+                "scheduler": torch.optim.lr_scheduler.LambdaLR(
+                    optimizer,
+                    lr_lambda=linear_warmup_cosine_anneal(
+                        warmup_steps=self.hparams.nsamples * 10,
+                        total_steps=self.hparams.titer
+                    )
+                ),
+                "interval": "step",
+                "frequency": 1,
+            }
+            return [optimizer], [scheduler]
+        else:
+            return [optimizer]
 
-    # TODO Better ways to set finetune dataset?
+    # TODO Better ways to set finetune-dataset?
     def load_finetune_dataset(self, traindataset, testdataset):
-        self.finetune_trainloader = DataLoader(dataset=traindataset, batch_size=self.hparams.finetune_batchsize, shuffle=True, num_workers=0)
-        self.finetune_testloader = DataLoader(dataset=testdataset, batch_size=self.hparams.finetune_batchsize, shuffle=False, num_workers=0)
+        self.finetune_trainloader = DataLoader(dataset=traindataset, batch_size=self.hparams.finetune_batchsize, shuffle=True, num_workers=4)
+        self.finetune_testloader = DataLoader(dataset=testdataset, batch_size=self.hparams.finetune_batchsize, shuffle=False, num_workers=4)
 
-    # eval-mode
+    # TODO suitable placement?
+    # knn-finetune in eval-mode, no gradients needed
     def on_validation_epoch_end(self):
-        if self.hparams.finetune_knn:
+        if self.hparams.finetune_knn  and self.current_epoch % self.hparams.finetune_interval == 0:
             self.knn_finetune()
 
-    # train-mode
+    # TODO suitable placement?
+    # linear-finetune in train-mode, gradients needed
     def on_train_epoch_end(self):
-        if self.current_epoch % 5 == 0 and self.hparams.finetune_linear:
+        if self.hparams.finetune_linear and self.current_epoch % self.hparams.finetune_interval == 0:
             self.linear_finetune()
 
     def linear_finetune(self):
-        finetuner = SCLFinetuner(self.model, lr=self.hparams.finetune_lr, num_classes=self.hparams.numclasses, device=self.device)
-        train_acc, test_acc = finetuner.fit(self.finetune_trainloader, self.finetune_testloader)
+        self.model.eval()
+        with torch.no_grad():
+            X_train, X_test, y_train, y_test = [], [], [], []
+            in_features = 0
+            for X, y in self.finetune_trainloader:
+                embeds = self.model.m(X.to(self.device)).detach()
+                in_features = embeds.shape[-1]
+                X_train.append(embeds)
+                y_train.append(y.detach())
+            for X, y in self.finetune_testloader:
+                embeds = self.model.m(X.to(self.device)).detach()
+                X_test.append(embeds)
+                y_test.append(y.detach())
+            X_train, y_train = torch.cat(X_train), torch.cat(y_train)
+            X_test, y_test = torch.cat(X_test), torch.cat(y_test)
+        finetuner = SCLFinetuner(in_features=in_features, lr=self.hparams.finetune_lr, num_classes=self.hparams.numclasses, device=self.device)
+        train_acc, test_acc = finetuner.fit(X_train, y_train, X_test, y_test, batchsize=self.hparams.finetune_batchsize)
         self.log("linear_finetune_train_acc", train_acc)
         self.log("linear_finetune_test_acc", test_acc)
 
@@ -208,13 +294,13 @@ class SCL(L.LightningModule):
         self.logger.experiment.add_image(self.hparams.dataset, grid, self.global_step)
 
     def _show_attention(self, batch, numimgs=2):
-        assert self.hparams.modelarch == "vit", "Must use vit for plotting attention heatmap"
+        assert self.hparams.modelarch in ["vit"], "Must use custom-vit for plotting attention heatmap"
         mu, sigma = get_image_stats(self.hparams.dataset)
         mu = torch.tensor(mu)[:, None, None]
         sigma = torch.tensor(sigma)[:, None, None]
         B = self.hparams.batchsize
         x = torch.cat(batch, dim=0).detach().cpu() * sigma + mu
-        attn = self.model.encoder[-1].attn.weights.detach().cpu()[:,:,0,1:] # (N,h,L,S) -> (N,h,S-1) drop attn(cls,cls)
+        attn = self.model.m.encoder[-1].attn.weights.detach().cpu()[:,:,0,1:] # (N,h,L,S) -> (N,h,S-1) drop attn(cls,cls)
         attn_size = int(attn.shape[-1] ** 0.5)
         nheads = attn.shape[1]
         B = self.hparams.batchsize

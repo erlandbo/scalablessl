@@ -21,12 +21,13 @@ python main_scl.py \
 --simmetric gaussian \
 --sigma 2.0 \
 --maxepochs -1 \
---modelarch resnet \
+--modelarch resnet18 \
 --in_channels 3 \
 --embed_dim 128 \
 --normlayer True \
 --maxpool1 True \
 --finetune_lr 3e-4 \
 --finetune_batchsize 64 \
---finetune_knn False \
+--finetune_knn True \
 --finetune_linear True \
+--finetune_interval 1 \

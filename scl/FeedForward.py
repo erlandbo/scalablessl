@@ -18,9 +18,9 @@ class MLPBlock(nn.Module):
 
 
 class FeedForward(nn.Module):
-    def __init__(self, in_channels, imgsize, out_features):
+    def __init__(self, imgsize, out_features, in_channels=3):
         super().__init__()
-        in_features = imgsize * imgsize  # in_channels?
+        in_features = imgsize * imgsize * in_channels
         self.block1 = MLPBlock(in_features=in_features, hdim=512, out_features=512)
         self.projector = nn.Sequential(
             nn.Linear(512, out_features)

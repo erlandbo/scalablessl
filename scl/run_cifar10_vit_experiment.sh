@@ -18,9 +18,9 @@ python main_scl.py \
 --batchsize 64 \
 --numworkers 20 \
 --lr 3e-4 \
---scheduler False \
+--scheduler linwarmup_cosanneal \
 --optimizer adam \
---valsplit 0.2 \
+--valsplit 0.05 \
 --alpha 0.5 \
 --titer 1_000_000 \
 --ro 1.0 \

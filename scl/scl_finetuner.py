@@ -1,22 +1,17 @@
 import torch
 import numpy as np
 from torch import nn
-import copy
+from torch.utils.data import DataLoader, TensorDataset
 
 
 class SCLFinetuner():
-    def __init__(self, model, device, num_classes, lr):
+    def __init__(self, device, in_features, num_classes, lr, hdim=512, activation="relu"):
         super().__init__()
         self.device = device
-        # TODO better way?
-        self.backbone = copy.deepcopy(model)
-        self.backbone.fc = nn.Identity()
-
         self.classier = nn.Sequential(
-            nn.LazyLinear(out_features=512),
-            #nn.Linear(in_features=512, out_features=512),
-            nn.ReLU(),
-            nn.Linear(in_features=512, out_features=num_classes)
+            nn.Linear(in_features=in_features, out_features=hdim),
+            nn.ReLU() if activation=="relu" else nn.GELU(),
+            nn.Linear(in_features=hdim, out_features=num_classes)
         ).to(self.device)
 
         self.optimizer = torch.optim.Adam(
@@ -25,23 +20,16 @@ class SCLFinetuner():
         )
         self.CE = nn.CrossEntropyLoss()
 
-    def backbone_forward(self, x):
-        self.backbone.eval()
-        with torch.no_grad():
-            feats = self.backbone(x)
-        feats = feats.detach().clone()
-        feats.requires_grad = True
-        return feats
-
-    def fit(self, trainloader, testloader, maxepochs=5):
+    def fit(self, X_train, y_train, X_test, y_test, maxepochs=5, batchsize=256):
+        trainloader = DataLoader(TensorDataset(X_train, y_train), batch_size=batchsize, shuffle=True)
+        testloader = DataLoader(TensorDataset(X_test, y_test), batch_size=batchsize, shuffle=False)
         train_acc, test_acc = [], []
         for _ in range(maxepochs):
             train_epoch_acc = []
             self.classier.train()
-            for x, y in trainloader:
-                x, y = x.to(self.device), y.to(self.device)
+            for feats, y in trainloader:
+                feats, y = feats.to(self.device), y.to(self.device)
                 self.optimizer.zero_grad()
-                feats = self.backbone_forward(x)
                 logits = self.classier(feats)
                 loss = self.CE(logits, y)
                 loss.backward()
@@ -52,9 +40,8 @@ class SCLFinetuner():
             test_epoch_acc = []
             self.classier.eval()
             with torch.no_grad():
-                for x, y in testloader:
-                    x, y = x.to(self.device), y.to(self.device)
-                    feats = self.backbone_forward(x)
+                for feats, y in testloader:
+                    feats, y = feats.to(self.device), y.to(self.device)
                     logits = self.classier(feats)
                     acc = torch.mean( (torch.argmax(logits, dim=-1) == y ).float() )
                     test_epoch_acc.append(acc.detach().cpu().numpy())

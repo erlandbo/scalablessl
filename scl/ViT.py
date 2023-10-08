@@ -70,11 +70,11 @@ class ViT(nn.Module):
             [EncoderLayer(d_model=d_model, nhead=nhead, d_ff=d_model*d_ff_ratio, dropout=dropout, activation=activation)
              for _ in range(num_layers)]
         )
-        self.fc = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, out_dim)) if out_dim > 0 else nn.Identity()
+        #self.fc = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, out_dim)) if out_dim > 0 else nn.Identity()
         self.cls_token = nn.Parameter(torch.rand(1, 1, d_model))
         self.posemb = nn.Parameter(torch.rand(1, self.embed.N_patches + 1, d_model))
         self.dropout = nn.Dropout(p=dropout)
-        self.num_classes = out_dim
+        #self.num_classes = out_dim
 
     def forward(self, x):
         x = self.embed(x)  # (N,3,H,W) -> (N,H'W',d_model)
@@ -83,12 +83,35 @@ class ViT(nn.Module):
         x = self.dropout(x + self.posemb)
         for layer in self.encoder:
             x = layer(x)  # (N,num_patches+1,d_model)
-        x = self.fc(x[:, 0])  # (N,d_model) -> (N,outdim)
+        # x = self.fc(x[:, 0])  # (N,d_model) -> (N,outdim)
+        x = x[:, 0]  # (N,d_model)
+        return x
+
+
+class SCLViT(nn.Module):
+    def __init__(self, out_dim, in_channels, imgsize, patch_dim, num_layers, d_model, nhead, d_ff_ratio, dropout=0.1, activation="relu"):
+        super().__init__()
+        self.m = ViT(out_dim=out_dim,
+                            in_channels=in_channels,
+                            imgsize=imgsize,
+                            patch_dim=patch_dim,
+                            num_layers=num_layers,
+                            d_model=d_model,
+                            nhead=nhead,
+                            d_ff_ratio=d_ff_ratio,
+                            dropout=dropout,
+                            activation=activation
+                            )
+        self.q = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, out_dim))
+
+    def forward(self, x):
+        x = self.m(x)
+        x = self.q(x)
         return x
 
 
 if __name__ == "__main__":
-    model = ViT(
+    model = SCLViT(
         out_dim=128,
         in_channels=3,
         imgsize=32,
