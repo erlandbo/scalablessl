@@ -8,9 +8,9 @@ class ResNettorch(nn.Module):
     def __init__(self, modelname, embed_dim, in_channels=3):
         super().__init__()
         resmodels = {
-            "resnet18pytorch": models.resnet18(num_classes=embed_dim),
-            "resnet34pytorch": models.resnet34(num_classes=embed_dim),
-            "resnet50pytorch": models.resnet50(num_classes=embed_dim),
+            "resnet18torch": models.resnet18(num_classes=embed_dim),
+            "resnet34torch": models.resnet34(num_classes=embed_dim),
+            "resnet50torch": models.resnet50(num_classes=embed_dim),
         }
         resmodel = resmodels[modelname]
         resmodel.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)

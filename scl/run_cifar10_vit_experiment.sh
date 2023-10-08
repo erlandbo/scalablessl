@@ -1,7 +1,7 @@
 # CIFAR10 ViT
 python main_scl.py \
 --dataset cifar10 \
---modelarch vit \
+--modelarch vittorch \
 --in_channels 3 \
 --embed_dim 128 \
 --transformer_patchdim 4 \
@@ -12,26 +12,15 @@ python main_scl.py \
 --transformer_dropout 0.1 \
 --transformer_activation relu \
 --jitterstrength 0.5 \
---gausblur False \
+--gausblur \
 --imgsize 32 \
---pflip True \
---batchsize 64 \
+--batchsize 128 \
 --numworkers 20 \
 --lr 3e-4 \
 --scheduler linwarmup_cosanneal \
 --optimizer adam \
---valsplit 0.05 \
 --alpha 0.5 \
 --titer 1_000_000 \
---ro 1.0 \
---xi 0.0 \
---omega 0.0 \
 --ncoeff 0.7 \
---sinv_init_coeff 2.0 \
 --simmetric gaussian \
---sigma 2.0 \
---maxepochs -1 \
---finetune_lr 3e-4 \
---finetune_batchsize 64 \
---finetune_knn False \
---finetune_linear True \
+--clamp 50

@@ -6,6 +6,10 @@ from torch.utils.data import random_split
 def get_image_stats(dataset):
     image_stats = {
         "cifar10": [(0.4915, 0.4823, 0.4468), (0.2470, 0.2435, 0.2616)],
+        "mnist": [(0.5,), (0.5,)],
+        "fashionmnist": [(0.5,), (0.5,)],
+        "svhn": [(0.5, 0.5, 0.5), (0.5, 0.5, 0.5)],
+        "celeba": [(0.5, 0.5, 0.5), (0.5, 0.5, 0.5)],
     }
     mu, sigma = (0.5,), (0.5,)
     if dataset in image_stats.keys():

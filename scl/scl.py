@@ -1,12 +1,8 @@
-from typing import Any
-
 import torch
 import lightning as L
-from lightning.pytorch.utilities.types import STEP_OUTPUT
 from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
 from torch.utils.data import DataLoader
-from FeedForward import FeedForward
 from ResNet import resnet18, resnet9, resnet34
 from torchmodels import ResNettorch, ViTtorch
 import torchvision
@@ -16,12 +12,14 @@ from torch.nn import functional as F
 import matplotlib.pyplot as plt
 from scl_finetuner import SCLFinetuner
 from Schedulers import linear_warmup_cosine_anneal
+from old_model import OldResNet
 
 
 class SCL(L.LightningModule):
     def __init__(self, hparams):
         super().__init__()
         self.save_hyperparameters(hparams)
+        print(hparams)
         if self.hparams.modelarch == "resnet9":
             self.model = resnet9(
                 in_channels=self.hparams.in_channels,
@@ -88,21 +86,18 @@ class SCL(L.LightningModule):
                 in_channels=self.hparams.in_channels,
             )
         else:
-            self.model = FeedForward(
-                in_channels=3,
-                imgsize=self.hparams.imgsize,
-                out_features=self.hparams.embed_dim
+            self.model = OldResNet(
+                embed_dim=self.hparams.embed_dim
             )
         # buffer's current values can be loaded using the state_dict of the module which might be useful to know
-        self.register_buffer("xi", torch.zeros(1,) + self.hparams.xi)  # weighted sum q
-        self.register_buffer("omega", torch.zeros(1,) + self.hparams.omega)  # count q
-        # TODO find best sinv_init
-        # sinv_init = self.hparams.nsamples** 2 / 10**self.hparams.sinv_init_coeff   # s_init = 10^t * N^-2
-        sinv_init = self.hparams.nsamples**self.hparams.ncoeff   # s_init = 10^t * N^-2
+        self.register_buffer("xi", torch.zeros(1,))  # weighted sum q
+        self.register_buffer("omega", torch.zeros(1,))  # count q
+        self.register_buffer("N", torch.zeros(1,) + self.hparams.nsamples)  # N samples in dataset
+        # sinv_init = self.hparams.nsamples**2 / 10**self.hparams.sinv_init_coeff   # s_init = 10^t * N^-2
+        sinv_init = self.hparams.nsamples**self.hparams.ncoeff   # TODO find better init
         self.register_buffer("s_inv", torch.zeros(1,) + sinv_init)  # scale parameter measure discrepancy between p and q
         self.register_buffer("alpha", torch.zeros(1,) + self.hparams.alpha)  # [0,1] adaptively extra attraction to ease training
-        self.register_buffer("ro", torch.zeros(1,) + self.hparams.ro)  # [0,1] forgetting rate s_inv
-        self.register_buffer("N", torch.zeros(1,) + self.hparams.nsamples)  # N samples in dataset
+        self.register_buffer("ro", torch.zeros(1,) + 1.0)  # [0,1] forgetting rate s_inv
         self.T = self.hparams.titer
         self.tau = self.hparams.ncoeff  # s-coefficient N**t
 
@@ -112,8 +107,8 @@ class SCL(L.LightningModule):
     def _sim_metric(self, z1, z2):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
-        elif self.hparams.simmetric == "gaussian":
-            return torch.exp(- torch.sum((z1 - z2)**2, dim=1) / (2 * self.hparams.sigma**2))
+        elif self.hparams.simmetric == "gaussian":  # TODO numerical stable
+            return torch.exp( - torch.sum((z1 - z2)**2,dim=1).clamp(max=self.hparams.clamp, min=self.hparams.eps) / (2 * self.hparams.var) )
         else:  # "cossim"
             z1 = z1.norm(p=2, dim=1, keepdim=True)
             z2 = z2.norm(p=2, dim=1, keepdim=True)
@@ -131,7 +126,7 @@ class SCL(L.LightningModule):
         z_i, zhat_i, z_j = z[0:B], z[B:2*B], z[2*B:3*B]
         # Positive forces
         qii = self._sim_metric(z_i, zhat_i)  # (B,1)
-        positive_forces = torch.mean( - torch.log(qii) )
+        positive_forces = torch.mean( - torch.log(qii) )  # TODO add small eps-term for log(0)
         self.xi = self.xi + torch.sum(self.alpha * qii).detach()
         self.omega = self.omega + self.alpha * B
         # Negative forces
@@ -140,6 +135,9 @@ class SCL(L.LightningModule):
         self.xi = self.xi + torch.sum( (1 - self.alpha) * qij ).detach()
         self.omega = self.omega + (1 - self.alpha) * B
         # Update only in train-step
+        # if batch_idx == 2:
+        #    import pdb
+        #    pdb.set_trace()
 
         loss = positive_forces + negative_forces
 
@@ -212,7 +210,7 @@ class SCL(L.LightningModule):
                 "scheduler": torch.optim.lr_scheduler.LambdaLR(
                     optimizer,
                     lr_lambda=linear_warmup_cosine_anneal(
-                        warmup_steps=self.hparams.nsamples * 10,
+                        warmup_steps=self.hparams.nsamples // self.hparams.batchsize * 10,
                         total_steps=self.hparams.titer
                     )
                 ),
@@ -225,8 +223,8 @@ class SCL(L.LightningModule):
 
     # TODO Better ways to set finetune-dataset?
     def load_finetune_dataset(self, traindataset, testdataset):
-        self.finetune_trainloader = DataLoader(dataset=traindataset, batch_size=self.hparams.finetune_batchsize, shuffle=True, num_workers=4)
-        self.finetune_testloader = DataLoader(dataset=testdataset, batch_size=self.hparams.finetune_batchsize, shuffle=False, num_workers=4)
+        self.finetune_trainloader = DataLoader(dataset=traindataset, batch_size=self.hparams.finetune_batchsize, shuffle=True, num_workers=0)
+        self.finetune_testloader = DataLoader(dataset=testdataset, batch_size=self.hparams.finetune_batchsize, shuffle=False, num_workers=0)
 
     # TODO suitable placement?
     # knn-finetune in eval-mode, no gradients needed
@@ -246,14 +244,15 @@ class SCL(L.LightningModule):
             X_train, X_test, y_train, y_test = [], [], [], []
             in_features = 0
             for X, y in self.finetune_trainloader:
-                embeds = self.model.m(X.to(self.device)).detach()
+                embeds = self.model.m(X.to(self.device)).clone().detach()
                 in_features = embeds.shape[-1]
                 X_train.append(embeds)
                 y_train.append(y.detach())
             for X, y in self.finetune_testloader:
-                embeds = self.model.m(X.to(self.device)).detach()
+                embeds = self.model.m(X.to(self.device)).clone().detach()
                 X_test.append(embeds)
                 y_test.append(y.detach())
+
             X_train, y_train = torch.cat(X_train), torch.cat(y_train)
             X_test, y_test = torch.cat(X_test), torch.cat(y_test)
         finetuner = SCLFinetuner(in_features=in_features, lr=self.hparams.finetune_lr, num_classes=self.hparams.numclasses, device=self.device)
@@ -273,6 +272,8 @@ class SCL(L.LightningModule):
                 y_test.append(y.detach().numpy())
             X_train, y_train = np.concatenate(X_train), np.concatenate(y_train)
             X_test, y_test = np.concatenate(X_test), np.concatenate(y_test)
+            # import pdb
+            # pdb.set_trace()
             knn.fit(X_train, y_train)
             y_hat = knn.predict(X_test)
             acc = np.mean(y_hat == y_test)

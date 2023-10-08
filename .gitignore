@@ -165,3 +165,6 @@ tb_logs/
 tb_logs_old/
 tb_logs_old2/
 tb_logs_sept/
+
+scl/scl_debug.py
+scl/old_model.py

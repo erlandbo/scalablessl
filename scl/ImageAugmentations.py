@@ -15,7 +15,7 @@ class SCLTrainTransform():
             transforms.RandomResizedCrop(size=imgsize),  #, scale=(0.14, 1)),
             transforms.RandomHorizontalFlip(p=p_flip),
             transforms.RandomApply([color_jitter], p=0.8),
-            transforms.RandomGrayscale(p=.2)
+            transforms.RandomGrayscale(p=0.2)
         ]
         if gaus_blur:
             transform.append(transforms.GaussianBlur(kernel_size=int(imgsize*0.1), sigma=(0.1, 2.0)))

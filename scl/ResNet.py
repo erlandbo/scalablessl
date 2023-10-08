@@ -25,10 +25,7 @@ class BasicResBlock(nn.Module):
         if self.normlayer:
             out = self.batchnorm2(out)
         if self.downsample:
-            print(out.shape)
-            print(identity.shape)
             identity = self.downsample(identity)
-            print(identity.shape)
         out += identity
         out = self.relu(out)
         return out

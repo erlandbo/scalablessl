@@ -1,33 +1,26 @@
-# CIFAR10
+# CIFAR10 ViT
 python main_scl.py \
 --dataset cifar10 \
+--modelarch resnet9 \
+--embed_dim 256 \
 --jitterstrength 0.5 \
---gausblur False \
+--gausblur \
 --imgsize 32 \
---pflip True \
---batchsize 512 \
+--batchsize 256 \
 --numworkers 20 \
 --lr 3e-4 \
---scheduler False \
+--scheduler None \
 --optimizer adam \
---valsplit 0.2 \
+--valsplit 0.01 \
 --alpha 0.5 \
 --titer 1_000_000 \
---ro 1.0 \
---xi 0.0 \
---omega 0.0 \
 --ncoeff 0.7 \
 --sinv_init_coeff 2.0 \
 --simmetric gaussian \
---sigma 2.0 \
+--var 0.5 \
 --maxepochs -1 \
---modelarch resnet18 \
---in_channels 3 \
---embed_dim 128 \
---normlayer True \
---maxpool1 True \
 --finetune_lr 3e-4 \
---finetune_batchsize 64 \
---finetune_knn True \
---finetune_linear True \
---finetune_interval 1 \
+--finetune_batchsize 256 \
+--finetune_knn \
+--finetune_interval 5 \
+--clamp 75
