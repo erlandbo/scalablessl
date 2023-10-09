@@ -4,7 +4,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 
-class SCLFinetuner():
+class SCLLinearFinetuner():
     def __init__(self, device, in_features, num_classes, lr, hdim=512, activation="relu"):
         super().__init__()
         self.device = device
@@ -48,4 +48,5 @@ class SCLFinetuner():
                 test_acc.append(np.mean(test_epoch_acc))
 
         return np.mean(train_acc), np.mean(test_acc)
+
 

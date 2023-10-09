@@ -1,7 +1,7 @@
 # CIFAR10 ViT
 python main_scl.py \
 --dataset cifar10 \
---modelarch resnet9 \
+--modelarch resnet18 \
 --embed_dim 256 \
 --jitterstrength 0.5 \
 --gausblur \
@@ -14,13 +14,12 @@ python main_scl.py \
 --valsplit 0.01 \
 --alpha 0.5 \
 --titer 1_000_000 \
---ncoeff 0.75 \
+--ncoeff 0.65 \
 --sinv_init_coeff 2.0 \
 --simmetric gaussian \
---var 1.0 \
+--var 2.0 \
 --maxepochs -1 \
 --finetune_lr 3e-4 \
 --finetune_batchsize 256 \
 --finetune_knn \
---finetune_linear \
 --finetune_interval 5 \

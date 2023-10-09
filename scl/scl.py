@@ -10,7 +10,7 @@ from utils import get_image_stats
 from ViT import SCLViT
 from torch.nn import functional as F
 import matplotlib.pyplot as plt
-from scl_finetuner import SCLFinetuner
+from scl_finetuner import SCLLinearFinetuner
 from Schedulers import linear_warmup_cosine_anneal
 from old_model import OldResNet
 
@@ -256,14 +256,14 @@ class SCL(L.LightningModule):
 
             X_train, y_train = torch.cat(X_train), torch.cat(y_train)
             X_test, y_test = torch.cat(X_test), torch.cat(y_test)
-        finetuner = SCLFinetuner(in_features=in_features, lr=self.hparams.finetune_lr, num_classes=self.hparams.numclasses, device=self.device)
+        finetuner = SCLLinearFinetuner(in_features=in_features, lr=self.hparams.finetune_lr, num_classes=self.hparams.numclasses, device=self.device)
         train_acc, test_acc = finetuner.fit(X_train, y_train, X_test, y_test, batchsize=self.hparams.finetune_batchsize)
         self.log("linear_finetune_train_acc", train_acc)
         self.log("linear_finetune_test_acc", test_acc)
 
     def knn_finetune(self):
         with torch.no_grad():
-            knn = KNeighborsClassifier()
+            knn = KNeighborsClassifier(n_neighbors=self.hparams.finetune_n_neighbours)
             X_train, X_test, y_train, y_test = [], [], [], []
             for X, y in self.finetune_trainloader:
                 X_train.append(self.model(X.to(self.device)).detach().cpu().numpy())

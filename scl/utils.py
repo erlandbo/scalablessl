@@ -10,6 +10,7 @@ def get_image_stats(dataset):
         "fashionmnist": [(0.5,), (0.5,)],
         "svhn": [(0.5, 0.5, 0.5), (0.5, 0.5, 0.5)],
         "celeba": [(0.5, 0.5, 0.5), (0.5, 0.5, 0.5)],
+        "stl10": [(0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)],
     }
     mu, sigma = (0.5,), (0.5,)
     if dataset in image_stats.keys():
@@ -19,7 +20,7 @@ def get_image_stats(dataset):
 
 def load_imagedataset(datasetname, val_split=0.2):
     traindataset, testdataset = None, None
-    mean, std = (0.5,), (0.5,)
+    assert datasetname in ["cifar10", "mnist", "fashionmnist", "svhn", "celeba", "stl10"]
     num_classes = 0
     if datasetname == "cifar10":
         traindataset = torchvision.datasets.CIFAR10(
@@ -34,7 +35,6 @@ def load_imagedataset(datasetname, val_split=0.2):
             download=True,
             transform=None
         )
-        mean, std = get_image_stats(datasetname)
         num_classes = 10
     elif datasetname == "mnist":
         traindataset = torchvision.datasets.MNIST(
@@ -49,6 +49,7 @@ def load_imagedataset(datasetname, val_split=0.2):
             download=True,
             transform=None
         )
+        num_classes = 10
     elif datasetname == "fashionmnist":
         traindataset = torchvision.datasets.FashionMNIST(
             root="./data",
@@ -62,6 +63,7 @@ def load_imagedataset(datasetname, val_split=0.2):
             download=True,
             transform=None
         )
+        num_classes = 10
     elif datasetname == "svhn":
         traindataset = torchvision.datasets.SVHN(
             root="./data",
@@ -75,7 +77,7 @@ def load_imagedataset(datasetname, val_split=0.2):
             download=True,
             transform=None
         )
-    elif datasetname == "svhn":
+    elif datasetname == "celeba":
         traindataset = torchvision.datasets.CelebA(
             root="./data",
             split="train",
@@ -84,10 +86,28 @@ def load_imagedataset(datasetname, val_split=0.2):
         )
         testdataset = torchvision.datasets.CelebA(
             root="./data",
-            split="train",
+            split="test",
             download=True,
             transform=None
         )
+        num_classes = 10
+    elif datasetname == "stl10":
+        traindataset = torchvision.datasets.STL10(
+            root="./data",
+            split="train+unlabeled",
+            download=True,
+            transform=None
+        )
+        testdataset = torchvision.datasets.STL10(
+            root="./data",
+            split="test",
+            download=True,
+            transform=None
+        )
+        num_classes = 10
+
+    mean, std = get_image_stats(datasetname)
+
     trainsize = int((1.0 - val_split) * len(traindataset))
     valsize = len(traindataset) - trainsize
     traindataset, valdataset = random_split(traindataset, lengths=[trainsize, valsize])
