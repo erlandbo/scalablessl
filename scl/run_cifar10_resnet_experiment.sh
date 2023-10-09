@@ -14,13 +14,13 @@ python main_scl.py \
 --valsplit 0.01 \
 --alpha 0.5 \
 --titer 1_000_000 \
---ncoeff 0.7 \
+--ncoeff 0.75 \
 --sinv_init_coeff 2.0 \
 --simmetric gaussian \
---var 0.5 \
+--var 1.0 \
 --maxepochs -1 \
 --finetune_lr 3e-4 \
 --finetune_batchsize 256 \
 --finetune_knn \
+--finetune_linear \
 --finetune_interval 5 \
---clamp 75

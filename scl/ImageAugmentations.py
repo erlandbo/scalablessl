@@ -3,7 +3,7 @@ from torchvision import transforms
 
 class SCLTrainTransform():
     # augmentations as described in SimCLR paper
-    def __init__(self, imgsize=32, s=0.5, gaus_blur=False, num_views=2, mean=(0.5,), std=(0.5,), p_flip=0.5):
+    def __init__(self, imgsize, mean, std, s=0.5, gaus_blur=False, num_views=2, p_flip=0.5):
         self.num_views = num_views
         color_jitter = transforms.ColorJitter(
             brightness=0.8*s,

@@ -16,7 +16,7 @@ parser.add_argument("--dataset", default="cifar10", type=str, help="Dataset to u
 parser.add_argument("--jitterstrength", default=0.5, type=float)
 parser.add_argument("--gausblur", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--imgsize", default=32, type=int)
-parser.add_argument("--pflip", default=True, action=argparse.BooleanOptionalAction, help="Enable random horizontal-plip")
+parser.add_argument("--pflip", default=0.5, type=float, help="prob random horizontal-plip")
 
 # Training hyperparameters
 parser.add_argument("--batchsize", default=64, type=int)
@@ -35,14 +35,12 @@ parser.add_argument("--sinv_init_coeff", default=2.0, type=float, help="INIT SIN
 parser.add_argument("--simmetric", default="gaussian", type=str, help="SIMMETRIC: cossim, gaussian, stud-tkernel")
 parser.add_argument("--var", default=0.5, type=float, help="variance for gaussian-kernel")
 
-
 # Model architecture
 # resnet9, resnet18, resnet34, resnet18torch, resnet34torch, resnet50torch, vit, vittorch, feedforward
 parser.add_argument("--modelarch", default="resnet18", type=str)
 parser.add_argument("--embed_dim", default=128, type=int)
 parser.add_argument("--clamp", default=100, type=float, help="clamp max-values L2-distance")
 parser.add_argument("--eps", default=1e-6, type=float, help="clamp min eps values L2-distance")
-
 
 # ResNet
 parser.add_argument("--in_channels", default=3, type=int)

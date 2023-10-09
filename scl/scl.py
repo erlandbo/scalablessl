@@ -108,7 +108,8 @@ class SCL(L.LightningModule):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
         elif self.hparams.simmetric == "gaussian":  # TODO numerical stable
-            return torch.exp( - torch.sum((z1 - z2)**2,dim=1).clamp(max=self.hparams.clamp, min=self.hparams.eps) / (2 * self.hparams.var) )
+            return torch.exp( - torch.sum((z1 - z2)**2,dim=1) / (2 * self.hparams.var) ).clamp(min=1e-40)
+            # return torch.exp( - torch.sum((z1 - z2)**2,dim=1).clamp(max=self.hparams.clamp, min=self.hparams.eps) / (2 * self.hparams.var) )
         else:  # "cossim"
             z1 = z1.norm(p=2, dim=1, keepdim=True)
             z2 = z2.norm(p=2, dim=1, keepdim=True)
@@ -126,7 +127,7 @@ class SCL(L.LightningModule):
         z_i, zhat_i, z_j = z[0:B], z[B:2*B], z[2*B:3*B]
         # Positive forces
         qii = self._sim_metric(z_i, zhat_i)  # (B,1)
-        positive_forces = torch.mean( - torch.log(qii) )  # TODO add small eps-term for log(0)
+        positive_forces = torch.mean( - torch.log(qii) )  # TODO numerical stable find eps
         self.xi = self.xi + torch.sum(self.alpha * qii).detach()
         self.omega = self.omega + self.alpha * B
         # Negative forces
