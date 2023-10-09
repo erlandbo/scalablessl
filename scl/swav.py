@@ -11,7 +11,7 @@ from sklearn.neighbors import KNeighborsClassifier
 import numpy as np
 from ResNet import ResNet
 from utils import load_dataset, load_knndataset
-from eval_embeddings import compute_embeddings
+from gen_embeddings import compute_embeddings
 
 
 class SwAV(L.LightningModule):

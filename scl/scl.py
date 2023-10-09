@@ -10,7 +10,7 @@ from utils import get_image_stats
 from ViT import SCLViT
 from torch.nn import functional as F
 import matplotlib.pyplot as plt
-from scl_finetuner import SCLLinearFinetuner
+from scl_online_finetuner import SCLLinearFinetuner
 from Schedulers import linear_warmup_cosine_anneal
 from old_model import OldResNet
 
@@ -107,7 +107,7 @@ class SCL(L.LightningModule):
     def _sim_metric(self, z1, z2):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
-        elif self.hparams.simmetric == "gaussian":  # TODO numerical stable
+        elif self.hparams.simmetric == "gaussian":  # TODO more numerical stable?
             return torch.exp( - torch.sum((z1 - z2)**2,dim=1) / (2 * self.hparams.var) ).clamp(min=1e-40)
             # return torch.exp( - torch.sum((z1 - z2)**2,dim=1).clamp(max=self.hparams.clamp, min=self.hparams.eps) / (2 * self.hparams.var) )
         else:  # "cossim"
@@ -127,7 +127,7 @@ class SCL(L.LightningModule):
         z_i, zhat_i, z_j = z[0:B], z[B:2*B], z[2*B:3*B]
         # Positive forces
         qii = self._sim_metric(z_i, zhat_i)  # (B,1)
-        positive_forces = torch.mean( - torch.log(qii) )  # TODO numerical stable find eps
+        positive_forces = torch.mean( - torch.log(qii) )
         self.xi = self.xi + torch.sum(self.alpha * qii).detach()
         self.omega = self.omega + self.alpha * B
         # Negative forces
@@ -136,9 +136,6 @@ class SCL(L.LightningModule):
         self.xi = self.xi + torch.sum( (1 - self.alpha) * qij ).detach()
         self.omega = self.omega + (1 - self.alpha) * B
         # Update only in train-step
-        # if batch_idx == 2:
-        #    import pdb
-        #    pdb.set_trace()
 
         loss = positive_forces + negative_forces
 

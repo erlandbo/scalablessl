@@ -92,6 +92,7 @@ def load_imagedataset(datasetname, val_split=0.2):
         )
         num_classes = 10
     elif datasetname == "stl10":
+        # TODO add KNN-support only on train and not train+unlabeled
         traindataset = torchvision.datasets.STL10(
             root="./data",
             split="train+unlabeled",

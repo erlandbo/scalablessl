@@ -60,7 +60,7 @@ parser.add_argument("--transformer_activation", default="relu", type=str)
 parser.add_argument("--finetune_lr", default=3e-4, type=float)
 parser.add_argument("--finetune_batchsize", default=64, type=int)
 parser.add_argument("--finetune_knn", default=True, action=argparse.BooleanOptionalAction)
-parser.add_argument("--finetune_n_neighbours", default=5, type=int)
+parser.add_argument("--finetune_n_neighbours", default=5, type=int)  # lightly ssl k=200
 parser.add_argument("--finetune_linear", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--finetune_interval", default=1, type=int)
 
