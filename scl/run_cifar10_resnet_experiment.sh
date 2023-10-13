@@ -6,7 +6,7 @@ python main_scl.py \
 --jitterstrength 0.5 \
 --gausblur \
 --imgsize 32 \
---batchsize 256 \
+--batchsize 512 \
 --numworkers 20 \
 --lr 3e-4 \
 --scheduler None \
@@ -14,12 +14,13 @@ python main_scl.py \
 --valsplit 0.01 \
 --alpha 0.5 \
 --titer 1_000_000 \
---ncoeff 0.65 \
+--ncoeff 0.6 \
 --sinv_init_coeff 2.0 \
 --simmetric gaussian \
 --var 2.0 \
 --maxepochs -1 \
 --finetune_lr 3e-4 \
---finetune_batchsize 256 \
+--finetune_batchsize 512 \
 --finetune_knn \
---finetune_interval 5 \
+--finetune_linear \
+--finetune_interval 10 \

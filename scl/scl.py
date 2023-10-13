@@ -107,7 +107,7 @@ class SCL(L.LightningModule):
     def _sim_metric(self, z1, z2):
         if self.hparams.simmetric == "stud-tkernel":
             return 1 / (1 + torch.sum((z1 - z2)**2, dim=1))
-        elif self.hparams.simmetric == "gaussian":  # TODO more numerical stable?
+        elif self.hparams.simmetric == "gaussian":  # TODO make more numerical stable?
             return torch.exp( - torch.sum((z1 - z2)**2,dim=1) / (2 * self.hparams.var) ).clamp(min=1e-40)
             # return torch.exp( - torch.sum((z1 - z2)**2,dim=1).clamp(max=self.hparams.clamp, min=self.hparams.eps) / (2 * self.hparams.var) )
         else:  # "cossim"
@@ -159,12 +159,15 @@ class SCL(L.LightningModule):
             "alpha": self.alpha.item(),
             "ro": self.ro.item(),
             "sinv": self.s_inv.item(),
+            "qij_coeff": (self.N**self.tau) / self.s_inv,
         },
             on_step=True,
             on_epoch=True,
             prog_bar=False
         )
         loss = self._shared_step(train_batch, batch_idx, mode="train")
+        # print("coeff init", self.N**self.tau / self.s_inv)
+
         # Update
         self.ro = self.N**self.tau / (self.N**self.tau + self.omega)
         self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.tau * self.xi / self.omega
