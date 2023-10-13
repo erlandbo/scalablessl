@@ -166,6 +166,8 @@ tb_logs_old/
 tb_logs_old2/
 tb_logs_sept/
 tb_logs_early_oct_finetuneing/
+tb_logs_oct13/
 
 scl/scl_debug.py
-scl/old_model.py
+scl/plots/
+scl/embeds/

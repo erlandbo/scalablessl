@@ -25,7 +25,8 @@ parser.add_argument("--lr", default=3e-4, type=float)
 parser.add_argument("--scheduler", default="None", type=str ) # "scheduler: None, cosanneal, linwarmup_cosanneal"
 parser.add_argument("--optimizer", default="adam", type=str)
 parser.add_argument("--valsplit", default=0.05, type=float)
-parser.add_argument("--maxepochs", default=-1, type=int) #, help="Training will run t-iterations so epochs are disabled")
+parser.add_argument("--maxepochs", default=-1, type=int)  #, help="Training will run t-iterations so epochs are disabled")
+parser.add_argument("--maxtime", default="", type=str)  # default None else format DD:HH:MM:SS (days, hours, minutes seconds)
 
 # SCL-algorithm hyperparameters
 parser.add_argument("--titer", default=1_000_000, type=int, help="Number of iterations of training")
@@ -45,7 +46,7 @@ parser.add_argument("--eps", default=1e-6, type=float, help="clamp min eps value
 # ResNet
 parser.add_argument("--in_channels", default=3, type=int)
 parser.add_argument("--normlayer", default=True, action=argparse.BooleanOptionalAction, help="use batchnorm in resnet")
-parser.add_argument("--maxpool1", default=True, action=argparse.BooleanOptionalAction, help="use maxpool in first conv-layer")
+parser.add_argument("--maxpool1", default=False, action=argparse.BooleanOptionalAction, help="use maxpool in first conv-layer")
 
 # ViT
 parser.add_argument("--transformer_patchdim", default=4, type=int)
@@ -60,9 +61,13 @@ parser.add_argument("--transformer_activation", default="relu", type=str)
 parser.add_argument("--finetune_lr", default=3e-4, type=float)
 parser.add_argument("--finetune_batchsize", default=64, type=int)
 parser.add_argument("--finetune_knn", default=True, action=argparse.BooleanOptionalAction)
-parser.add_argument("--finetune_n_neighbours", default=5, type=int)  # lightly ssl k=200
+parser.add_argument("--finetune_n_neighbours", default=200, type=int)  # swav-paper uses nn=20 and nn=200
 parser.add_argument("--finetune_linear", default=False, action=argparse.BooleanOptionalAction)
 parser.add_argument("--finetune_interval", default=1, type=int)
+
+# Plotting
+parser.add_argument("--plot2d", default=False, action=argparse.BooleanOptionalAction)
+parser.add_argument("--plot2d_interval", default=10, type=int)
 
 
 def main():
@@ -127,11 +132,12 @@ def main():
 
     # Lightning
     torch.set_float32_matmul_precision('medium')
-
-    logger = TensorBoardLogger("tb_logs", name="scl")
+    experiment_name = "{}_{}_batch_{}_Ncoeff_{}_embeddim_{}".format(arg.modelarch, arg.dataset, arg.batchsize, arg.ncoeff, arg.embed_dim)
+    logger = TensorBoardLogger("tb_logs", name="scl/" + experiment_name)
     trainer = L.Trainer(
         logger=logger,
         max_epochs=arg.maxepochs,
+        max_time = arg.maxtime if arg.maxtime != "" else None,
         max_steps=arg.titer,
         precision=32,
         accelerator="gpu",

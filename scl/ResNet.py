@@ -32,7 +32,7 @@ class BasicResBlock(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, blocks, embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=True, expansion=1):
+    def __init__(self, blocks, embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=False, expansion=1):
         super().__init__()
         self.expansion = expansion
         in_planes = 64
@@ -54,13 +54,13 @@ class ResNet(nn.Module):
         self.layer4 = self.make_resblock(in_channels=256, out_channels=512, stride=2, padding=1, kernel_size=3, normlayer=normlayer, blocks=blocks[3])
         #
         self.pool = nn.AdaptiveAvgPool2d((1,1))
-        fc_layers = [
-            nn.Linear(512*self.expansion, 512, bias=False),
-            nn.BatchNorm1d(512) if normlayer else None,
-            nn.ReLU(),
-            nn.Linear(512, embed_dim, bias=True)
-        ]
-        self.fc = nn.Sequential(*[layer for layer in fc_layers if layer is not None])
+        # fc_layers = [
+        #     nn.Linear(512*self.expansion, 512*4, bias=False),
+        #     nn.BatchNorm1d(512*4) if normlayer else None,
+        #     nn.ReLU(),
+        #     nn.Linear(512*4, embed_dim, bias=True)
+        # ]
+        # self.fc = nn.Sequential(*[layer for layer in fc_layers if layer is not None])
         self.normlayer = normlayer
 
     def make_resblock(self, in_channels, out_channels, kernel_size, padding, stride, blocks, normlayer=True):
@@ -115,14 +115,14 @@ class ResNet(nn.Module):
 
 
 class SLCResNet(nn.Module):
-    def __init__(self, blocks, embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=True, expansion=1):
+    def __init__(self, blocks, embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=False, expansion=1):
         super().__init__()
         self.m = ResNet(blocks=blocks, embed_dim=embed_dim, in_channels=in_channels, normlayer=normlayer, first_conv=first_conv, maxpool1=maxpool1)
         fc_layers = [
-            nn.Linear(512*expansion, 512, bias=False),
-            nn.BatchNorm1d(512) if normlayer else None,
+            nn.Linear(512*expansion, embed_dim*4, bias=False),
+            nn.BatchNorm1d(embed_dim*4) if normlayer else None,
             nn.ReLU(),
-            nn.Linear(512, embed_dim, bias=True)
+            nn.Linear(embed_dim*4, embed_dim, bias=True)
         ]
         self.q = nn.Sequential(*[layer for layer in fc_layers if layer is not None])
 
@@ -132,7 +132,7 @@ class SLCResNet(nn.Module):
         return x
 
 
-def resnet18(embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=True):
+def resnet18(embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=False):
     return SLCResNet(
         blocks=[2,2,2,2],
         in_channels=in_channels,
@@ -143,7 +143,7 @@ def resnet18(embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool
     )
 
 
-def resnet9(embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=True):
+def resnet9(embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool1=False):
     return SLCResNet(
         blocks=[1,1,1,1],
         in_channels=in_channels,

@@ -20,7 +20,7 @@ class SCLLinearFinetuner():
         )
         self.CE = nn.CrossEntropyLoss()
 
-    def fit(self, X_train, y_train, X_test, y_test, maxepochs=5, batchsize=256):
+    def fit(self, X_train, y_train, X_test, y_test, maxepochs=10, batchsize=256):
         trainloader = DataLoader(TensorDataset(X_train, y_train), batch_size=batchsize, shuffle=True)
         testloader = DataLoader(TensorDataset(X_test, y_test), batch_size=batchsize, shuffle=False)
         train_acc, test_acc = [], []

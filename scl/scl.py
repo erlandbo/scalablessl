@@ -89,6 +89,7 @@ class SCL(L.LightningModule):
             self.model = OldResNet(
                 embed_dim=self.hparams.embed_dim
             )
+        print(self.model)
         # buffer's current values can be loaded using the state_dict of the module which might be useful to know
         self.register_buffer("xi", torch.zeros(1,))  # weighted sum q
         self.register_buffer("omega", torch.zeros(1,))  # count q
@@ -100,6 +101,8 @@ class SCL(L.LightningModule):
         self.register_buffer("ro", torch.zeros(1,) + 1.0)  # [0,1] forgetting rate s_inv
         self.T = self.hparams.titer
         self.tau = self.hparams.ncoeff  # s-coefficient N**t
+        # Manually log initial value
+        # self.log("qij_coeff", (self.N**self.tau) / self.s_inv,)
 
     def forward(self, x):
         return self.model(x)
@@ -230,8 +233,11 @@ class SCL(L.LightningModule):
     # TODO suitable placement?
     # knn-finetune in eval-mode, no gradients needed
     def on_validation_epoch_end(self):
-        if self.hparams.finetune_knn  and self.current_epoch % self.hparams.finetune_interval == 0:
+        if self.hparams.finetune_knn and self.current_epoch % self.hparams.finetune_interval == 0:
             self.knn_finetune()
+
+        if self.hparams.plot2d and self.current_epoch % self.hparams.plot2d_interval == 0 and self.hparams.embed_dim == 2:
+            self.visualize_embeds()
 
     # TODO suitable placement?
     # linear-finetune in train-mode, gradients needed
@@ -281,6 +287,27 @@ class SCL(L.LightningModule):
             self.log("knn_test_acc", acc)
             train_acc = np.mean(knn.predict(X_train) == y_train)
             self.log("knn_train_acc", train_acc)
+
+    def visualize_embeds(self):
+        assert self.hparams.embed_dim == 2, "Can not scatterplot embeddim > 2"
+        with torch.no_grad():
+            X_train, X_test, y_train, y_test = [], [], [], []
+            for X, y in self.finetune_trainloader:
+                X_train.append(self.model(X.to(self.device)).detach().cpu().numpy())
+                y_train.append(y.detach().numpy())
+            for X, y in self.finetune_testloader:
+                X_test.append(self.model(X.to(self.device)).detach().cpu().numpy())
+                y_test.append(y.detach().numpy())
+            X_train, y_train = np.concatenate(X_train), np.concatenate(y_train)
+            X_test, y_test = np.concatenate(X_test), np.concatenate(y_test)
+
+            fig, ax = plt.subplots(figsize=(25, 25))
+            ax.scatter(X_train[:,0], X_train[:, 1], c=y_train)
+            self.logger.experiment.add_figure("train_scatter", fig, global_step=self.global_step)
+
+            fig, ax = plt.subplots(figsize=(25, 25))
+            ax.scatter(X_test[:,0], X_test[:, 1], c=y_test)
+            self.logger.experiment.add_figure("test_scatter", fig, global_step=self.global_step)
 
     # Plotting
     def _show_images(self, batch):
