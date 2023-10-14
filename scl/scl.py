@@ -251,7 +251,7 @@ class SCL(L.LightningModule):
             X_train, X_test, y_train, y_test = [], [], [], []
             in_features = 0
             for X, y in self.finetune_trainloader:
-                embeds = self.model.m(X.to(self.device)).clone().detach()
+                embeds = self.model.m(X.to(self.device)).clone().detach()  # NOTE: extract backbone features
                 in_features = embeds.shape[-1]
                 X_train.append(embeds)
                 y_train.append(y.detach())
