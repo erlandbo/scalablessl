@@ -6,6 +6,7 @@ from torch.utils.data import random_split
 def get_image_stats(dataset):
     image_stats = {
         "cifar10": [(0.4915, 0.4823, 0.4468), (0.2470, 0.2435, 0.2616)],
+        "cifar100": [(0.4915, 0.4823, 0.4468), (0.2470, 0.2435, 0.2616)],
         "mnist": [(0.5,), (0.5,)],
         "fashionmnist": [(0.5,), (0.5,)],
         "svhn": [(0.5, 0.5, 0.5), (0.5, 0.5, 0.5)],
@@ -20,7 +21,8 @@ def get_image_stats(dataset):
 
 def load_imagedataset(datasetname, val_split=0.2):
     traindataset, testdataset = None, None
-    assert datasetname in ["cifar10", "mnist", "fashionmnist", "svhn", "celeba", "stl10"]
+    knn_traindataset, knn_testdataset = None, None
+    assert datasetname in ["cifar10", "cifar100","mnist", "fashionmnist", "svhn", "celeba", "stl10"]
     num_classes = 0
     if datasetname == "cifar10":
         traindataset = torchvision.datasets.CIFAR10(
@@ -36,6 +38,20 @@ def load_imagedataset(datasetname, val_split=0.2):
             transform=None
         )
         num_classes = 10
+    elif datasetname == "cifar100":
+        traindataset = torchvision.datasets.CIFAR100(
+            root="./data",
+            train=True,
+            download=True,
+            transform=None
+        )
+        testdataset = torchvision.datasets.CIFAR100(
+            root="./data",
+            train=False,
+            download=True,
+            transform=None
+        )
+        num_classes = 100
     elif datasetname == "mnist":
         traindataset = torchvision.datasets.MNIST(
             root="./data",
@@ -105,6 +121,12 @@ def load_imagedataset(datasetname, val_split=0.2):
             download=True,
             transform=None
         )
+        knn_traindataset = torchvision.datasets.STL10(
+            root="./data",
+            split="train",
+            download=True,
+            transform=None
+        )
         num_classes = 10
 
     mean, std = get_image_stats(datasetname)
@@ -112,5 +134,8 @@ def load_imagedataset(datasetname, val_split=0.2):
     trainsize = int((1.0 - val_split) * len(traindataset))
     valsize = len(traindataset) - trainsize
     traindataset, valdataset = random_split(traindataset, lengths=[trainsize, valsize])
-    return traindataset, valdataset, testdataset, mean, std, num_classes
+    if knn_traindataset is None: knn_traindataset = traindataset
+    if knn_testdataset is None: knn_testdataset = testdataset
+
+    return traindataset, valdataset, testdataset, mean, std, num_classes, knn_traindataset, knn_testdataset
 

@@ -2,9 +2,8 @@
 python main_scl.py \
 --dataset cifar10 \
 --modelarch resnet18 \
---embed_dim 256 \
+--embed_dim 128 \
 --jitterstrength 0.5 \
---gausblur \
 --imgsize 32 \
 --batchsize 512 \
 --numworkers 20 \
@@ -18,21 +17,19 @@ python main_scl.py \
 --sinv_init_coeff 2.0 \
 --simmetric gaussian \
 --var 2.0 \
---maxepochs -1 \
+--maxepochs 1000 \
 --finetune_lr 3e-4 \
 --finetune_batchsize 512 \
 --finetune_knn \
 --finetune_linear \
 --finetune_interval 10 \
 --finetune_n_neighbours 20 \
---maxtime 00:00:01:00
 
 python main_scl.py \
 --dataset cifar10 \
 --modelarch resnet18 \
 --embed_dim 256 \
 --jitterstrength 0.5 \
---gausblur \
 --imgsize 32 \
 --batchsize 256 \
 --numworkers 20 \
@@ -60,7 +57,6 @@ python main_scl.py \
 --modelarch resnet18 \
 --embed_dim 256 \
 --jitterstrength 0.5 \
---gausblur \
 --imgsize 32 \
 --batchsize 128 \
 --numworkers 20 \
@@ -88,7 +84,6 @@ python main_scl.py \
 --modelarch resnet18 \
 --embed_dim 256 \
 --jitterstrength 0.5 \
---gausblur \
 --imgsize 32 \
 --batchsize 64 \
 --numworkers 20 \
@@ -116,7 +111,6 @@ python main_scl.py \
 --modelarch resnet18 \
 --embed_dim 256 \
 --jitterstrength 0.5 \
---gausblur \
 --imgsize 32 \
 --batchsize 32 \
 --numworkers 20 \
@@ -144,7 +138,6 @@ python main_scl.py \
 --modelarch resnet18 \
 --embed_dim 256 \
 --jitterstrength 0.5 \
---gausblur \
 --imgsize 32 \
 --batchsize 8 \
 --numworkers 20 \

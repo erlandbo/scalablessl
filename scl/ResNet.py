@@ -98,17 +98,23 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        #print(x.shape)
         x = self.conv1(x)
         if self.normlayer:
             x = self.bn1(x)
+        #print(x.shape)
         x = self.relu1(x)
         x = self.maxpool1(x)
+        #print(x.shape)
+
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+        #print(x.shape)
+
         x = self.pool(x)
-        # print(x.shape)
+        #print(x.shape)
         x = torch.flatten(x, start_dim=1)
         # x = self.fc(x)
         return x
@@ -166,9 +172,9 @@ def resnet34(embed_dim, in_channels=3, normlayer=True, first_conv=False, maxpool
 
 
 if __name__ == "__main__":
-    model1 = resnet18(256, normlayer=False, maxpool1=False)
+    model1 = resnet18(256, normlayer=False, maxpool1=True, first_conv=False)
     #print(model1)
     model2 = resnet34(256, normlayer=False, maxpool1=False)
     #print(model2)
-    x = torch.rand((8, 3, 28, 28))
+    x = torch.rand((8, 3, 96, 96))
     out = model1(x)

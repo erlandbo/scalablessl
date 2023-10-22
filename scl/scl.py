@@ -26,6 +26,7 @@ class SCL(L.LightningModule):
                 embed_dim=self.hparams.embed_dim,
                 normlayer=self.hparams.normlayer,
                 maxpool1=self.hparams.maxpool1,
+                first_conv=self.hparams.first_conv
             )
         elif self.hparams.modelarch == "resnet18":
             self.model = resnet18(
@@ -33,6 +34,7 @@ class SCL(L.LightningModule):
                 embed_dim=self.hparams.embed_dim,
                 normlayer=self.hparams.normlayer,
                 maxpool1=self.hparams.maxpool1,
+                first_conv=self.hparams.first_conv
             )
         elif self.hparams.modelarch == "resnet34":
             self.model = resnet34(
@@ -40,6 +42,7 @@ class SCL(L.LightningModule):
                 embed_dim=self.hparams.embed_dim,
                 normlayer=self.hparams.normlayer,
                 maxpool1=self.hparams.maxpool1,
+                first_conv=self.hparams.first_conv
             )
         elif self.hparams.modelarch == "resnet18torch":
             self.model = ResNettorch(
@@ -235,7 +238,7 @@ class SCL(L.LightningModule):
     def on_validation_epoch_end(self):
         if self.hparams.finetune_knn and self.current_epoch % self.hparams.finetune_interval == 0:
             self.knn_finetune()
-
+        # TODO add t-SNE on d>2
         if self.hparams.plot2d and self.current_epoch % self.hparams.plot2d_interval == 0 and self.hparams.embed_dim == 2:
             self.visualize_embeds()
 
@@ -264,8 +267,8 @@ class SCL(L.LightningModule):
             X_test, y_test = torch.cat(X_test), torch.cat(y_test)
         finetuner = SCLLinearFinetuner(in_features=in_features, lr=self.hparams.finetune_lr, num_classes=self.hparams.numclasses, device=self.device)
         train_acc, test_acc = finetuner.fit(X_train, y_train, X_test, y_test, batchsize=self.hparams.finetune_batchsize)
-        self.log("linear_finetune_train_acc", train_acc)
-        self.log("linear_finetune_test_acc", test_acc)
+        self.log("linear_finetune_train_acc", train_acc, on_step=False, on_epoch=True)
+        self.log("linear_finetune_test_acc", test_acc, on_step=False, on_epoch=True)
 
     def knn_finetune(self):
         with torch.no_grad():
@@ -284,11 +287,12 @@ class SCL(L.LightningModule):
             knn.fit(X_train, y_train)
             y_hat = knn.predict(X_test)
             acc = np.mean(y_hat == y_test)
-            self.log("knn_test_acc", acc)
+            self.log("knn_test_acc", acc, on_step=False, on_epoch=True)
             train_acc = np.mean(knn.predict(X_train) == y_train)
-            self.log("knn_train_acc", train_acc)
+            self.log("knn_train_acc", train_acc, on_step=False, on_epoch=True)
 
     def visualize_embeds(self):
+        # TODO add t-SNE and fix scatterplot cluster-color
         assert self.hparams.embed_dim == 2, "Can not scatterplot embeddim > 2"
         with torch.no_grad():
             X_train, X_test, y_train, y_test = [], [], [], []

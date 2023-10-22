@@ -4,10 +4,11 @@ from Datasets import SCLDataset, SCLFinetuneDataset
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from scl import SCL
-from ImageAugmentations import SCLTrainTransform, SCLEvalTransform
+from ImageAugmentations import SCLTrainTransform, SCLEvalTransform, SCLMnistTrainTransform
 from utils import load_imagedataset
 from torch.utils.data import DataLoader, RandomSampler
 import argparse
+import torchvision
 
 parser = argparse.ArgumentParser(description="SCL")
 
@@ -18,6 +19,9 @@ parser.add_argument("--gausblur", default=False, action=argparse.BooleanOptional
 parser.add_argument("--imgsize", default=32, type=int)
 parser.add_argument("--pflip", default=0.5, type=float, help="prob random horizontal-plip")
 
+parser.add_argument("--aug", default="simclr", type=str, help="Augmentation to use: simclr, mnist")
+
+
 # Training hyperparameters
 parser.add_argument("--batchsize", default=64, type=int)
 parser.add_argument("--numworkers", default=0, type=int)
@@ -25,11 +29,11 @@ parser.add_argument("--lr", default=3e-4, type=float)
 parser.add_argument("--scheduler", default="None", type=str ) # "scheduler: None, cosanneal, linwarmup_cosanneal"
 parser.add_argument("--optimizer", default="adam", type=str)
 parser.add_argument("--valsplit", default=0.05, type=float)
-parser.add_argument("--maxepochs", default=-1, type=int)  #, help="Training will run t-iterations so epochs are disabled")
+parser.add_argument("--maxepochs", default=-1, type=int)
 parser.add_argument("--maxtime", default="", type=str)  # default None else format DD:HH:MM:SS (days, hours, minutes seconds)
 
 # SCL-algorithm hyperparameters
-parser.add_argument("--titer", default=1_000_000, type=int, help="Number of iterations of training")
+parser.add_argument("--titer", default=-1, type=int, help="Number of iterations of training")
 parser.add_argument("--alpha", default=0.5, type=float, help="ALPHA")
 parser.add_argument("--ncoeff", default=0.7, type=float, help="N_COEFF")
 parser.add_argument("--sinv_init_coeff", default=2.0, type=float, help="INIT SINV = N_SAMPLES ** 2 / 10 ** sinv_init")
@@ -47,6 +51,7 @@ parser.add_argument("--eps", default=1e-6, type=float, help="clamp min eps value
 parser.add_argument("--in_channels", default=3, type=int)
 parser.add_argument("--normlayer", default=True, action=argparse.BooleanOptionalAction, help="use batchnorm in resnet")
 parser.add_argument("--maxpool1", default=False, action=argparse.BooleanOptionalAction, help="use maxpool in first conv-layer")
+parser.add_argument("--first_conv", default=False, action=argparse.BooleanOptionalAction, help="use maxpool in first conv-layer")
 
 # ViT
 parser.add_argument("--transformer_patchdim", default=4, type=int)
@@ -60,10 +65,10 @@ parser.add_argument("--transformer_activation", default="relu", type=str)
 # Finetune
 parser.add_argument("--finetune_lr", default=3e-4, type=float)
 parser.add_argument("--finetune_batchsize", default=64, type=int)
-parser.add_argument("--finetune_knn", default=True, action=argparse.BooleanOptionalAction)
-parser.add_argument("--finetune_n_neighbours", default=200, type=int)  # swav-paper uses nn=20 and nn=200
+parser.add_argument("--finetune_knn", default=False, action=argparse.BooleanOptionalAction)
+parser.add_argument("--finetune_n_neighbours", default=20, type=int)  # swav-paper uses nn=20 and nn=200
 parser.add_argument("--finetune_linear", default=False, action=argparse.BooleanOptionalAction)
-parser.add_argument("--finetune_interval", default=1, type=int)
+parser.add_argument("--finetune_interval", default=10, type=int)
 
 # Plotting
 parser.add_argument("--plot2d", default=False, action=argparse.BooleanOptionalAction)
@@ -73,25 +78,55 @@ parser.add_argument("--plot2d_interval", default=10, type=int)
 def main():
     arg = parser.parse_args()
 
-    traindataset, valdataset, testdataset, mean, std, num_classes = load_imagedataset(datasetname=arg.dataset, val_split=arg.valsplit)
+    traindataset, valdataset, testdataset, mean, std, num_classes, knn_traindataset, knn_testdataset = load_imagedataset(datasetname=arg.dataset, val_split=arg.valsplit)
 
     arg.nsamples = len(traindataset)
     arg.numclasses = num_classes
 
     # Train and val dataloader
+    if arg.aug == "simclr":
+        train_transform = SCLTrainTransform(
+            imgsize=arg.imgsize,
+            mean=mean,
+            std=std,
+            s=arg.jitterstrength,
+            gaus_blur=arg.gausblur,
+            num_views=1,
+            p_flip=arg.pflip
+        )
+        val_transform = SCLTrainTransform(
+            imgsize=arg.imgsize,
+            mean=mean,
+            std=std,
+            s=arg.jitterstrength,
+            gaus_blur=arg.gausblur,
+            num_views=1,
+            p_flip=arg.pflip
+        )
+    else:
+        train_transform = SCLMnistTrainTransform(
+            imgsize=arg.imgsize,
+            mean=mean,
+            std=std,
+            gaus_blur=arg.gausblur,
+            num_views=1,
+            p_flip=arg.pflip
+        )
+        val_transform = SCLMnistTrainTransform(
+            imgsize=arg.imgsize,
+            mean=mean,
+            std=std,
+            gaus_blur=arg.gausblur,
+            num_views=1,
+            p_flip=arg.pflip
+        )
+
     # NOTE: sampling with replacement
+
     trainloader = DataLoader(
         SCLDataset(
             traindataset,
-            transform=SCLTrainTransform(
-                imgsize=arg.imgsize,
-                mean=mean,
-                std=std,
-                s=arg.jitterstrength,
-                gaus_blur=arg.gausblur,
-                num_views=1,
-                p_flip=arg.pflip
-            ),
+            transform=train_transform
         ),
         batch_size=arg.batchsize,
         num_workers=arg.numworkers,
@@ -100,15 +135,7 @@ def main():
     valloader = DataLoader(
         SCLDataset(
             valdataset,
-            transform=SCLTrainTransform(
-                imgsize=arg.imgsize,
-                mean=mean,
-                std=std,
-                s=arg.jitterstrength,
-                gaus_blur=arg.gausblur,
-                num_views=1,
-                p_flip=arg.pflip
-            ),
+            transform=val_transform
         ),
         batch_size=arg.batchsize,
         num_workers=arg.numworkers,
@@ -117,18 +144,18 @@ def main():
 
     # Finetune dataloaders
     finetune_traindataset = SCLFinetuneDataset(
-        traindataset,
+        knn_traindataset,
         transform=SCLEvalTransform(imgsize=arg.imgsize, mean=mean, std=std, num_views=1),
     )
-    finetune_testloader = SCLFinetuneDataset(
-        testdataset,
+    finetune_testdataset = SCLFinetuneDataset(
+        knn_testdataset,
         transform=SCLEvalTransform(imgsize=arg.imgsize, mean=mean, std=std, num_views=1),
     )
 
     model = SCL(arg)
 
     # TODO better ways to set finetune-dataset?
-    model.load_finetune_dataset(finetune_traindataset, finetune_testloader)
+    model.load_finetune_dataset(finetune_traindataset, finetune_testdataset)
 
     # Lightning
     torch.set_float32_matmul_precision('medium')

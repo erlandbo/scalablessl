@@ -74,5 +74,5 @@ class SCLOfflineFinetuner(L.LightningModule):
                 lr=self.hparams.lr,
             )
 
-
+        return [optimizer]
 
