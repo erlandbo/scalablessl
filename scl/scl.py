@@ -306,11 +306,11 @@ class SCL(L.LightningModule):
             X_test, y_test = np.concatenate(X_test), np.concatenate(y_test)
 
             fig, ax = plt.subplots(figsize=(25, 25))
-            ax.scatter(X_train[:,0], X_train[:, 1], c=y_train)
+            ax.scatter(X_train[:,0], X_train[:, 1], c=y_train, cmap="jet")
             self.logger.experiment.add_figure("train_scatter", fig, global_step=self.global_step)
 
             fig, ax = plt.subplots(figsize=(25, 25))
-            ax.scatter(X_test[:,0], X_test[:, 1], c=y_test)
+            ax.scatter(X_test[:,0], X_test[:, 1], c=y_test, cmap="jet")
             self.logger.experiment.add_figure("test_scatter", fig, global_step=self.global_step)
 
     # Plotting

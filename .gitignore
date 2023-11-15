@@ -171,3 +171,5 @@ tb_logs_oct13/
 scl/scl_debug.py
 scl/plots/
 scl/embeds/
+scl/plot.ipynb
+scl/idunjob.slurm
