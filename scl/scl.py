@@ -101,7 +101,7 @@ class SCL(L.LightningModule):
         sinv_init = self.hparams.nsamples**self.hparams.ncoeff   # TODO find better init
         self.register_buffer("s_inv", torch.zeros(1,) + sinv_init)  # scale parameter measure discrepancy between p and q
         self.register_buffer("alpha", torch.zeros(1,) + self.hparams.alpha)  # [0,1] adaptively extra attraction to ease training
-        self.register_buffer("ro", torch.zeros(1,) + 1.0)  # [0,1] forgetting rate s_inv
+        self.register_buffer("ro", torch.zeros(1,) + self.hparams.ro)  # [0,1] forgetting rate s_inv
         self.T = self.hparams.titer
         self.tau = self.hparams.ncoeff  # s-coefficient N**t
         # Manually log initial value
@@ -175,7 +175,8 @@ class SCL(L.LightningModule):
         # print("coeff init", self.N**self.tau / self.s_inv)
 
         # Update
-        self.ro = self.N**self.tau / (self.N**self.tau + self.omega)
+        if self.hparams.update_ro:
+            self.ro = self.N**self.tau / (self.N**self.tau + self.omega)
         self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.tau * self.xi / self.omega
         return loss
 
