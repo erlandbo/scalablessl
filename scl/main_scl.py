@@ -21,7 +21,6 @@ parser.add_argument("--pflip", default=0.5, type=float, help="prob random horizo
 
 parser.add_argument("--aug", default="simclr", type=str, help="Augmentation to use: simclr, mnist")
 
-
 # Training hyperparameters
 parser.add_argument("--batchsize", default=64, type=int)
 parser.add_argument("--numworkers", default=0, type=int)
@@ -35,12 +34,11 @@ parser.add_argument("--maxtime", default="", type=str)  # default None else form
 # SCL-algorithm hyperparameters
 parser.add_argument("--titer", default=-1, type=int, help="Number of iterations of training")
 parser.add_argument("--alpha", default=0.5, type=float, help="ALPHA")
-parser.add_argument("--ro", default=0.99, type=float, help="RO sinv scheduler")
-parser.add_argument("--ncoeff", default=0.7, type=float, help="N_COEFF")
+parser.add_argument("--ro", default=-1, type=float, help="RO sinv scheduler")
+parser.add_argument("--ncoeff", default=2.0, type=float, help="N_COEFF")
 parser.add_argument("--sinv_init_coeff", default=2.0, type=float, help="INIT SINV = N_SAMPLES ** 2 / 10 ** sinv_init")
 parser.add_argument("--simmetric", default="gaussian", type=str, help="SIMMETRIC: cossim, gaussian, stud-tkernel")
 parser.add_argument("--var", default=0.5, type=float, help="variance for gaussian-kernel")
-parser.add_argument("--update_ro", default=True, action=argparse.BooleanOptionalAction)
 
 # Model architecture
 # resnet9, resnet18, resnet34, resnet18torch, resnet34torch, resnet50torch, vit, vittorch, feedforward
@@ -73,8 +71,9 @@ parser.add_argument("--finetune_linear", default=False, action=argparse.BooleanO
 parser.add_argument("--finetune_interval", default=10, type=int)
 
 # Plotting
-parser.add_argument("--plot2d", default=False, action=argparse.BooleanOptionalAction)
-parser.add_argument("--plot2d_interval", default=10, type=int)
+parser.add_argument("--plot2d_interval", default=0, type=int)
+
+parser.add_argument("--experiment_name", default="experiment", type=str)
 
 
 def main():
@@ -161,8 +160,8 @@ def main():
 
     # Lightning
     torch.set_float32_matmul_precision('medium')
-    experiment_name = "{}_{}_batch_{}_Ncoeff_{}_embeddim_{}_alpha_{}".format(arg.modelarch, arg.dataset, arg.batchsize, arg.ncoeff, arg.embed_dim, arg.alpha)
-    logger = TensorBoardLogger("tb_logs", name="scl/" + experiment_name)
+    run_name = "/{}_{}_batch_{}_Ncoeff_{}_embeddim_{}_alpha_{}".format(arg.modelarch, arg.dataset, arg.batchsize, arg.ncoeff, arg.embed_dim, arg.alpha)
+    logger = TensorBoardLogger("tb_logs", name="scl/"+ arg.experiment_name + run_name)
     trainer = L.Trainer(
         logger=logger,
         max_epochs=arg.maxepochs,

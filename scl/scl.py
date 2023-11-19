@@ -6,14 +6,14 @@ from torch.utils.data import DataLoader
 from ResNet import resnet18, resnet9, resnet34
 from torchmodels import ResNettorch, ViTtorch
 import torchvision
-from utils import get_image_stats
+from utils import get_image_stats, classlabels2name
 from ViT import SCLViT
 from torch.nn import functional as F
 import matplotlib.pyplot as plt
 from scl_online_finetuner import SCLLinearFinetuner
 from Schedulers import linear_warmup_cosine_anneal
 from old_model import OldResNet
-
+import matplotlib
 
 class SCL(L.LightningModule):
     def __init__(self, hparams):
@@ -116,10 +116,12 @@ class SCL(L.LightningModule):
         elif self.hparams.simmetric == "gaussian":  # TODO make more numerical stable?
             return torch.exp( - torch.sum((z1 - z2)**2,dim=1) / (2 * self.hparams.var) ).clamp(min=1e-40)
             # return torch.exp( - torch.sum((z1 - z2)**2,dim=1).clamp(max=self.hparams.clamp, min=self.hparams.eps) / (2 * self.hparams.var) )
-        else:  # "cossim"
+        elif self.hparams.simmetric == "cossim":
             z1 = z1.norm(p=2, dim=1, keepdim=True)
             z2 = z2.norm(p=2, dim=1, keepdim=True)
             return torch.sum(z1 * z2, dim=1) * 0.5 + 0.5  # cosine similarity [-1,1] -> [0,1]
+        else:
+            assert 1 == 2, "Invalid simmetric"  # TODO clean code
 
     def _shared_step(self, batch, batch_idx, mode="train"):
         # Reset
@@ -175,7 +177,7 @@ class SCL(L.LightningModule):
         # print("coeff init", self.N**self.tau / self.s_inv)
 
         # Update
-        if self.hparams.update_ro:
+        if self.hparams.ro < 0.0:
             self.ro = self.N**self.tau / (self.N**self.tau + self.omega)
         self.s_inv = self.ro * self.s_inv + (1 - self.ro) * self.N**self.tau * self.xi / self.omega
         return loss
@@ -240,7 +242,7 @@ class SCL(L.LightningModule):
         if self.hparams.finetune_knn and self.current_epoch % self.hparams.finetune_interval == 0:
             self.knn_finetune()
         # TODO add t-SNE on d>2
-        if self.hparams.plot2d and self.current_epoch % self.hparams.plot2d_interval == 0 and self.hparams.embed_dim == 2:
+        if self.hparams.plot2d_interval > 0 and self.current_epoch % self.hparams.plot2d_interval == 0 and self.hparams.embed_dim == 2:
             self.visualize_embeds()
 
     # TODO suitable placement?
@@ -306,13 +308,129 @@ class SCL(L.LightningModule):
             X_train, y_train = np.concatenate(X_train), np.concatenate(y_train)
             X_test, y_test = np.concatenate(X_test), np.concatenate(y_test)
 
-            fig, ax = plt.subplots(figsize=(25, 25))
-            ax.scatter(X_train[:,0], X_train[:, 1], c=y_train, cmap="jet")
-            self.logger.experiment.add_figure("train_scatter", fig, global_step=self.global_step)
+            label_names = classlabels2name(self.hparams.dataset)
 
-            fig, ax = plt.subplots(figsize=(25, 25))
-            ax.scatter(X_test[:,0], X_test[:, 1], c=y_test, cmap="jet")
-            self.logger.experiment.add_figure("test_scatter", fig, global_step=self.global_step)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            colors = matplotlib.cm.jet(np.linspace(0,1,self.hparams.numclasses))
+            for i in range(self.hparams.numclasses):
+                ax.scatter(X_train[y_train == i ,0], X_train[y_train==i, 1], label=label_names[i], color=colors[i])
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="medium")
+            #ax.set_title('Train')
+            ax.set_axis_off()
+            fig.tight_layout()
+            self.logger.experiment.add_figure("train_scatter1", fig, global_step=self.global_step)
+
+            fig.savefig("plots/{}_{}_epoch_{}_train_1_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset,self.current_epoch), format="pdf")
+
+            #fig.savefig("plots/plot11.pdf", format="pdf")
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for i in range(self.hparams.numclasses):
+                ax.scatter(X_test[y_test==i,0], X_test[y_test==i, 1], label=label_names[i], color=colors[i])
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="medium")
+            #ax.set_title('Test')
+            ax.set_axis_off()
+            fig.tight_layout()
+            self.logger.experiment.add_figure("test_scatter1", fig, global_step=self.global_step)
+            fig.savefig("plots/{}_{}_epoch_{}_test_1_plot.pdf".format(self.hparams.experiment_name,self.hparams.dataset, self.current_epoch), format="pdf")
+
+            fig, ax = plt.subplots(figsize=(20, 12))
+            colors = matplotlib.cm.jet(np.linspace(0,1,self.hparams.numclasses))
+            for i in range(self.hparams.numclasses):
+                ax.scatter(X_train[y_train == i ,0], X_train[y_train==i, 1], label=label_names[i], color=colors[i])
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="20")
+            #ax.set_title('Train')
+            ax.set_axis_off()
+            fig.tight_layout()
+            self.logger.experiment.add_figure("train_scatter2", fig, global_step=self.global_step)
+
+            fig.savefig("plots/{}_{}_epoch_{}_train_2_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset,self.current_epoch), format="pdf")
+            #fig.savefig("plots/{}_plot12.pdf".format(self.hparams.experiment_name), format="pdf")
+
+            fig, ax = plt.subplots(figsize=(20, 12))
+            for i in range(self.hparams.numclasses):
+                ax.scatter(X_test[y_test==i,0], X_test[y_test==i, 1], label=label_names[i], color=colors[i])
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="20")
+            #ax.set_title('Test')
+            ax.set_axis_off()
+            fig.tight_layout()
+            self.logger.experiment.add_figure("test_scatter2", fig, global_step=self.global_step)
+            fig.savefig("plots/{}_{}_epoch_{}_test_2_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset,self.current_epoch), format="pdf")
+
+            fig, ax = plt.subplots(figsize=(30, 24))
+            colors = matplotlib.cm.jet(np.linspace(0,1,self.hparams.numclasses))
+            for i in range(self.hparams.numclasses):
+                ax.scatter(X_train[y_train == i ,0], X_train[y_train==i, 1], label=label_names[i], color=colors[i])
+            #ax.set_title('Train')
+            ax.set_axis_off()
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="25")
+            fig.tight_layout()
+            self.logger.experiment.add_figure("train_scatter3", fig, global_step=self.global_step)
+
+            fig.savefig("plots/{}_{}_epoch_{}_train_3_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset, self.current_epoch), format="pdf")
+            #fig.savefig("plots/plot13.pdf", format="pdf")
+
+            fig, ax = plt.subplots(figsize=(30, 24))
+            for i in range(self.hparams.numclasses):
+                ax.scatter(X_test[y_test==i,0], X_test[y_test==i, 1], label=label_names[i], color=colors[i])
+            #ax.set_title('Test')
+            ax.set_axis_off()
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="25")
+            fig.tight_layout()
+            self.logger.experiment.add_figure("test_scatter3", fig, global_step=self.global_step)
+
+            fig.savefig("plots/{}_{}_epoch_{}_test_3_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset,self.current_epoch), format="pdf")
+
+            ###
+            fig, ax = plt.subplots(1,2, figsize=(20, 10))
+            colors = matplotlib.cm.jet(np.linspace(0,1,self.hparams.numclasses))
+            for i in range(self.hparams.numclasses):
+                ax[0].scatter(X_train[y_train == i ,0], X_train[y_train==i, 1], label=label_names[i], color=colors[i])
+                ax[1].scatter(X_test[y_test==i,0], X_test[y_test==i, 1], label=label_names[i], color=colors[i])
+            ax[1].legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="20")
+            #ax[0].set_title('Train')
+            ax[0].set_axis_off()
+            #ax[1].set_title('Test')
+            ax[1].set_axis_off()
+            fig.tight_layout()
+            self.logger.experiment.add_figure("scatter1", fig, global_step=self.global_step)
+            fig.savefig("plots/{}_{}_epoch_{}_scatter_1_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset,self.current_epoch), format="pdf")
+
+            fig, ax = plt.subplots(1,2, figsize=(10, 6))
+            colors = matplotlib.cm.jet(np.linspace(0,1,self.hparams.numclasses))
+            for i in range(self.hparams.numclasses):
+                ax[0].scatter(X_train[y_train == i ,0], X_train[y_train==i, 1], label=label_names[i], color=colors[i])
+                ax[1].scatter(X_test[y_test==i,0], X_test[y_test==i, 1], label=label_names[i], color=colors[i])
+            ax[1].legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="medium")
+            #ax[0].set_title('Train')
+            ax[0].set_axis_off()
+            #ax[1].set_title('Test')
+            ax[1].set_axis_off()
+            fig.tight_layout()
+            self.logger.experiment.add_figure("scatter2", fig, global_step=self.global_step)
+
+            fig.savefig("plots/{}_{}_epoch_{}_scatter_2_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset,self.current_epoch), format="pdf")
+
+            fig, ax = plt.subplots(1,2, figsize=(30, 20))
+            colors = matplotlib.cm.jet(np.linspace(0,1,self.hparams.numclasses))
+            for i in range(self.hparams.numclasses):
+                ax[0].scatter(X_train[y_train == i ,0], X_train[y_train==i, 1], label=label_names[i], color=colors[i])
+                ax[1].scatter(X_test[y_test==i,0], X_test[y_test==i, 1], label=label_names[i], color=colors[i])
+            ax[1].legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="25")
+            #ax[0].set_title('Train')
+            ax[0].set_axis_off()
+            #ax[1].set_title('Test')
+            ax[1].set_axis_off()
+            fig.tight_layout()
+            self.logger.experiment.add_figure("scatter3", fig, global_step=self.global_step)
+
+            fig.savefig("plots/{}_{}_epoch_{}_scatter_3_plot.pdf".format(self.hparams.experiment_name, self.hparams.dataset,self.current_epoch), format="pdf")
+            #fig, ax = plt.subplots(figsize=(10, 6))
+            #for i in range(self.hparams.numclasses):
+            #    ax.scatter(X_test[y_test==i,0], X_test[y_test==i, 1], label=label_names[i], color=colors[i])
+            #ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize="medium")
+            #fig.tight_layout()
+            #self.logger.experiment.add_figure("test_scatter", fig, global_step=self.global_step)
 
     # Plotting
     def _show_images(self, batch):

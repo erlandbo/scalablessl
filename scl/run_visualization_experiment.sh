@@ -1,9 +1,27 @@
-# CIFAR10 ViT
-python main_scl_visualization.py \
---dataset cifar10 \
+# CIFAR10 resnet18
+python main_scl.py \
+--dataset mnist \
+--modelarch resnet18 \
+--embed_dim 2 \
+--jitterstrength 0.5 \
 --imgsize 32 \
---batchsize 256 \
---numworkers 0 \
+--batchsize 512 \
+--numworkers 20 \
+--lr 3e-4 \
+--optimizer adam \
 --valsplit 0.01 \
---checkpoint_path tb_logs/scl/resnet18_cifar10_batch_512_Ncoeff_0.78_embeddim_256/version_3/checkpoints/last.ckpt \
---plot_name test
+--alpha 0.5 \
+--ncoeff 2.0 \
+--sinv_init_coeff 2.0 \
+--simmetric stud-tkernel \
+--maxepochs 1005 \
+--finetune_lr 3e-4 \
+--finetune_batchsize 512 \
+--finetune_knn \
+--finetune_linear \
+--finetune_interval 50 \
+--finetune_n_neighbours 20 \
+--ro 0.99 \
+--plot2d_interval 50 \
+--experiment_name visualization \
+--in_channels 1 \

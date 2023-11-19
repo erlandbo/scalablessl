@@ -1,3 +1,4 @@
+import numpy as np
 import torchvision
 from ImageAugmentations import SCLEvalTransform
 from torch.utils.data import random_split
@@ -139,3 +140,10 @@ def load_imagedataset(datasetname, val_split=0.2):
 
     return traindataset, valdataset, testdataset, mean, std, num_classes, knn_traindataset, knn_testdataset
 
+
+def classlabels2name(dataset_name):
+    file = open("labels/" + dataset_name + ".txt", "r")
+    data = file.read()
+    data_list = data.split("\n")
+    file.close()
+    return data_list
