@@ -173,3 +173,8 @@ scl/plots/
 scl/embeds/
 scl/plot.ipynb
 scl/idunjob.slurm
+scl/plots2
+scl/plots3
+*.png
+*.pdf
+*.jpg

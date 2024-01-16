@@ -3,14 +3,13 @@ import lightning as L
 from Datasets import SCLDataset, SCLFinetuneDataset
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-from scl import SCL
+from simclr import SimCLR
 from ImageAugmentations import SCLTrainTransform, SCLEvalTransform, SCLMnistTrainTransform
 from utils import load_imagedataset
 from torch.utils.data import DataLoader, RandomSampler
 import argparse
-import torchvision
 
-parser = argparse.ArgumentParser(description="SCL")
+parser = argparse.ArgumentParser(description="SimCLR")
 
 # Dataset and augmentation
 parser.add_argument("--dataset", default="cifar10", type=str, help="Dataset to use")
@@ -24,6 +23,7 @@ parser.add_argument("--aug", default="simclr", type=str, help="Augmentation to u
 # Training hyperparameters
 parser.add_argument("--batchsize", default=64, type=int)
 parser.add_argument("--numworkers", default=0, type=int)
+
 parser.add_argument("--lr", default=3e-4, type=float)
 parser.add_argument("--min_lr", default=0.0, type=float)
 parser.add_argument("--momentum", default=0.9, type=float)
@@ -38,19 +38,13 @@ parser.add_argument("--maxtime", default="", type=str)  # default None else form
 
 # SCL-algorithm hyperparameters
 parser.add_argument("--titer", default=-1, type=int, help="Number of iterations of training")
-parser.add_argument("--alpha", default=0.5, type=float, help="ALPHA")
-parser.add_argument("--ro", default=-1, type=float, help="RO sinv scheduler")
-parser.add_argument("--ncoeff", default=2.0, type=float, help="N_COEFF")
-parser.add_argument("--sinv_init_coeff", default=2.0, type=float, help="INIT SINV = N_SAMPLES ** 2 / 10 ** sinv_init")
-parser.add_argument("--simmetric", default="gaussian", type=str, help="SIMMETRIC: cossim, gaussian, stud-tkernel")
-parser.add_argument("--var", default=0.5, type=float, help="variance for gaussian-kernel")
+parser.add_argument("--simmetric", default="euclidean", type=str, help="SIMMETRIC: cosine, euclidean, gauss")
 
 # Model architecture
 # resnet9, resnet18, resnet34, resnet18torch, resnet34torch, resnet50torch, vit, vittorch, feedforward
 parser.add_argument("--modelarch", default="resnet18", type=str)
 parser.add_argument("--embed_dim", default=128, type=int)
-parser.add_argument("--clamp", default=100, type=float, help="clamp max-values L2-distance")
-parser.add_argument("--eps", default=1e-6, type=float, help="clamp min eps values L2-distance")
+parser.add_argument("--machine_epsilon", default=1e-6, type=float, help="clamp min eps values L2-distance")
 
 # ResNet
 parser.add_argument("--in_channels", default=3, type=int)
@@ -158,7 +152,7 @@ def main():
         transform=SCLEvalTransform(imgsize=arg.imgsize, mean=mean, std=std, num_views=1),
     )
 
-    model = SCL(arg)
+    model = SimCLR(arg)
 
     # TODO better ways to set finetune-dataset?
     model.load_finetune_dataset(finetune_traindataset, finetune_testdataset)

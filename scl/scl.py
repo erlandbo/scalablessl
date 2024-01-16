@@ -12,8 +12,8 @@ from torch.nn import functional as F
 import matplotlib.pyplot as plt
 from scl_online_finetuner import SCLLinearFinetuner
 from Schedulers import linear_warmup_cosine_anneal
-from old_model import OldResNet
 import matplotlib
+
 
 class SCL(L.LightningModule):
     def __init__(self, hparams):
@@ -194,7 +194,7 @@ class SCL(L.LightningModule):
             optimizer = torch.optim.SGD(
                 self.model.parameters(),
                 lr=self.hparams.lr,
-                momentum=0.8
+                momentum=self.hparams.momentum
             )
         else:
             optimizer = torch.optim.Adam(
@@ -206,12 +206,12 @@ class SCL(L.LightningModule):
         if self.hparams.scheduler == "cosanneal":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 optimizer,
-                T_max = self.T,  # max iterations
-                eta_min=0.0  # min lr
+                T_max = self.hparams.lr_total_steps,  # max iterations
+                eta_min=self.hparams.min_lr  # min lr
             )
             scheduler = {
                 "scheduler": scheduler,
-                "interval": "step",
+                "interval": self.hparams.lr_scheduler_interval,
                 "frequency": 1
             }
             return [optimizer], [scheduler]
@@ -220,11 +220,12 @@ class SCL(L.LightningModule):
                 "scheduler": torch.optim.lr_scheduler.LambdaLR(
                     optimizer,
                     lr_lambda=linear_warmup_cosine_anneal(
-                        warmup_steps=self.hparams.nsamples // self.hparams.batchsize * 10,
-                        total_steps=self.hparams.titer
+                        warmup_steps=self.hparams.lr_warmup_steps,
+                        total_steps=self.hparams.lr_total_steps,
+                        min_lr=self.hparams.min_lr
                     )
                 ),
-                "interval": "step",
+                "interval": self.hparams.lr_scheduler_interval,
                 "frequency": 1,
             }
             return [optimizer], [scheduler]
